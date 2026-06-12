@@ -335,41 +335,26 @@ class TableExtractor(
         document_id: str,
     ) -> list[TableNode]:
 
-        table_nodes: list[
-            TableNode
-        ] = []
+        table_nodes: list[TableNode] = []
 
         finder = page.find_tables()
 
-        for table_index, table in enumerate(
-            finder.tables
-        ):
+        for table_index, table in enumerate(finder.tables):
 
             rows = table.extract()
 
             if not rows:
                 continue
 
-            rows = self._normalize_rows(
-                rows
-            )
+            rows = self._normalize_rows(rows)
 
-            if (
-                self.config.skip_empty_tables
-                and not rows
-            ):
+            if self.config.skip_empty_tables and not rows:
                 continue
 
-            if (
-                len(rows)
-                < self.config.min_rows
-            ):
+            if len(rows) < self.config.min_rows:
                 continue
 
-            if (
-                self._column_count(rows)
-                < self.config.min_columns
-            ):
+            if self._column_count(rows) < self.config.min_columns:
                 continue
 
             table_nodes.append(
@@ -389,43 +374,24 @@ class TableExtractor(
 
         return table_nodes
 
-    def _normalize_rows(
-        self,
-        rows: list[list],
-    ) -> list[list]:
+    def _normalize_rows(self, rows: list[list],) -> list[list]:
 
         normalized_rows = []
 
         for row in rows:
-
             normalized_rows.append(
-                [
-                    ""
-                    if cell is None
-                    else str(cell)
-                    for cell in row
-                ]
+                ["" if cell is None else str(cell) for cell in row]
             )
 
         return normalized_rows
 
-    def _column_count(
-        self,
-        rows: list[list],
-    ) -> int:
-
+    def _column_count(self, rows: list[list],) -> int:
         if not rows:
             return 0
 
-        return max(
-            len(row)
-            for row in rows
-        )
+        return max(len(row) for row in rows)
 
-    def _table_bbox(
-        self,
-        bbox,
-    ) -> BBox:
+    def _table_bbox(self, bbox,) -> BBox:
 
         return (
             float(bbox[0]),

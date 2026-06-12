@@ -1,0 +1,321 @@
+import asyncio
+import gc
+import torch
+
+from pydantic import Field, PrivateAttr
+from sentence_transformers import SentenceTransformer
+
+from langchain_core.embeddings import Embeddings
+from ragas.embeddings.base import BaseRagasEmbedding
+from llama_index.core.embeddings import BaseEmbedding
+
+class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
+    """
+    Universal embedding wrapper for:
+    - SentenceTransformers
+    - LangChain
+    - Ragas
+    - LlamaIndex
+
+    Features:
+    ----------
+    - target_dimension truncation
+    - fp16 inference
+    - VRAM optimized
+    - embedding cache
+    - async support
+    """
+
+    modele: SentenceTransformer = Field(default=None,exclude=True)
+
+    name: str = Field(default="embedder")
+
+    dimension: int | None = Field(default=None)
+
+    target_dimension: int | None = Field(default=None)
+
+    normalize_embeddings: bool = Field(default=True)
+
+    _batch_size: int = PrivateAttr()
+
+    _cache: dict[str, list[float]] = PrivateAttr(default_factory=dict)
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    # =========================================================
+    # INIT
+    # =========================================================
+
+    def __init__(
+        self,
+        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        device: str = "cuda",
+        normalize_embeddings: bool = True,
+        target_dimension: int | None = None,
+        max_seq_length: int = 512,
+        batch_size: int = 1,
+        dtype=torch.float16,
+        **kwargs,
+    ):
+        super().__init__(model_name=model_name, **kwargs)
+
+        model = SentenceTransformer(
+            model_name,
+            device=device,
+            trust_remote_code=True,
+            model_kwargs={
+                "dtype": dtype
+            }
+        )
+
+        model.max_seq_length = max_seq_length
+
+        model.eval()
+
+        object.__setattr__(self, "modele", model)
+
+        object.__setattr__(self, "name", model_name)
+
+        object.__setattr__(self, "normalize_embeddings", normalize_embeddings)
+
+        object.__setattr__(self, "target_dimension", target_dimension)
+
+        object.__setattr__(self, "_batch_size", batch_size)
+
+        object.__setattr__(self, "_cache", {})
+
+        sample_emb = self._encode_single("-")
+
+        full_dim = len(sample_emb)
+
+        if target_dimension is not None:
+
+            if target_dimension > full_dim:
+                raise ValueError(
+                    f"target_dimension={target_dimension} "
+                    f"exceeds model dimension={full_dim}"
+                )
+
+            final_dim = target_dimension
+
+        else:
+
+            final_dim = full_dim
+
+        object.__setattr__(
+            self,
+            "dimension",
+            final_dim
+        )
+
+        gc.collect()
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    # =========================================================
+    # STRING
+    # =========================================================
+
+    def __str__(self) -> str:
+        return self.name.replace("/", "-").replace(" ", "_")
+
+    # =========================================================
+    # INTERNAL HELPERS
+    # =========================================================
+
+    def _truncate_embedding(self, emb: list[float]) -> list[float]:
+
+        if self.target_dimension is None:
+            return emb
+
+        return emb[:self.target_dimension]
+
+    def _encode_single(self, text: str) -> list[float]:
+
+        with torch.inference_mode():
+
+            emb = self.modele.encode(
+                text,
+                normalize_embeddings=self.normalize_embeddings,
+                convert_to_numpy=True,
+                convert_to_tensor=False,
+                show_progress_bar=False,
+                batch_size=1,
+            )
+
+        emb = emb.tolist()
+
+        emb = self._truncate_embedding(emb)
+
+        return emb
+
+    def _encode_batch(self, texts: list[str]) -> list[list[float]]:
+
+        if not texts:
+            return []
+
+        with torch.inference_mode():
+
+            embeddings = self.modele.encode(
+                texts,
+                normalize_embeddings=self.normalize_embeddings,
+                convert_to_numpy=True,
+                convert_to_tensor=False,
+                show_progress_bar=len(texts) > 32,
+                batch_size=self._batch_size,
+            )
+
+        embeddings = embeddings.tolist()
+
+        if self.target_dimension is not None:
+            embeddings = [emb[:self.target_dimension] for emb in embeddings]
+
+        gc.collect()
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        return embeddings
+
+    # =========================================================
+    # LANGCHAIN
+    # =========================================================
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._get_embedding(text)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+
+        uncached = [t for t in texts if t not in self._cache]
+
+        if uncached:
+
+            new_embeddings = self._encode_batch(uncached)
+
+            for text, emb in zip(uncached, new_embeddings):
+                self._cache[text] = emb
+
+        return [self._cache[t] for t in texts]
+
+    # =========================================================
+    # RAGAS
+    # =========================================================
+
+    def embed_text(self, text: str, **kwargs) -> list[float]:
+        return self.embed_query(text)
+
+    async def aembed_text(self, text: str, **kwargs) -> list[float]:
+
+        loop = asyncio.get_event_loop()
+
+        return await loop.run_in_executor(
+            None,
+            self.embed_query,
+            text
+        )
+    
+    async def aembed_query(self, text: str) -> list[float]:
+        return await self._aget_embedding(text)
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+
+        loop = asyncio.get_event_loop()
+
+        return await loop.run_in_executor(None, self.embed_documents, texts)
+
+    # =========================================================
+    # LLAMAINDEX
+    # =========================================================
+
+    def _get_query_embedding(self, text: str) -> list[float]:
+
+        return self.embed_query(text)
+
+    def _get_text_embedding(self, text: str) -> list[float]:
+
+        return self.embed_query(text)
+
+    async def _aget_query_embedding(self, text: str) -> list[float]:
+
+        loop = asyncio.get_event_loop()
+
+        return await loop.run_in_executor(None, self.embed_query, text)
+
+    # =========================================================
+    # CACHE
+    # =========================================================
+
+    def _get_embedding(self, text: str) -> list[float]:
+
+        if text in self._cache:
+            return self._cache[text]
+
+        emb = self._encode_single(text)
+
+        self._cache[text] = emb
+
+        return emb
+
+    async def _aget_embedding(self, text: str) -> list[float]:
+
+        if text in self._cache:
+            return self._cache[text]
+
+        loop = asyncio.get_event_loop()
+
+        emb = await loop.run_in_executor(None, self._encode_single, text)
+
+        self._cache[text] = emb
+
+        return emb
+
+    def clear_cache(self):
+
+        self._cache.clear()
+
+        gc.collect()
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    @property
+    def cache_size(self):
+
+        return len(self._cache)
+
+    # =========================================================
+    # UTILS
+    # =========================================================
+
+    def get_dimension(self):
+
+        return self.dimension
+
+    def embed_text_with_values(self, text: str) -> dict:
+
+        emb = self.embed_query(text)
+
+        return {
+            "text": text,
+            "embedding": emb
+        }
+
+    def register_texts_with_embeddings(self, texts: list[str], embeddings: list[list[float]],):
+
+        assert len(texts) == len(embeddings)
+
+        for text, emb in zip(texts, embeddings):
+            self._cache[text] = emb
+
+    def register_texts(self, texts: list[str]):
+
+        uncached = [t for t in texts if t not in self._cache]
+
+        if not uncached:
+            return
+
+        embeddings = self._encode_batch(uncached)
+
+        for text, emb in zip(uncached, embeddings):
+            self._cache[text] = emb

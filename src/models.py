@@ -1,0 +1,257 @@
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Self, Any
+import json
+import logging
+import numpy as np
+from transformers import pipeline
+
+from src.utility import clean_text
+from src.configs import BaseConfig, BasePretrainedConfig, BaseCaptioningConfig, BaseTextGeneratorConfig, OllamaCaptioningConfig
+
+import ollama
+
+class BaseModel(ABC):
+
+    def __init__(self, config: BaseConfig):
+        self.config = config
+
+        self.name = (config.name if config.name is not None else self.__class__.__name__)
+
+        self.logger = logging.getLogger(self.name)
+
+    def to_dict(self) -> dict:
+        return {
+            "model_type": self.__class__.__name__,
+            "config": self.config.to_dict(),
+        }
+
+    def to_json(self, path: str | Path) -> None:
+
+        def json_converter(obj):
+
+            if isinstance(obj, (np.ndarray, list, tuple)):
+                return np.array(obj).tolist()
+
+            return str(obj)
+
+        with open(path, "w", encoding="utf-8") as f:
+
+            json.dump(self.to_dict(), f, indent=4, default=json_converter)
+
+    def to_folder(self, directory: str | Path) -> Path:
+
+        directory = Path(directory)
+
+        directory.mkdir(parents=True, exist_ok=True)
+
+        self.config.save_json(directory / "config.json")
+
+        self.logger.info(f"Successfully saved model to {directory}")
+
+        return directory
+
+    # @classmethod
+    # @abstractmethod
+    # def from_folder(cls, directory: str | Path) -> Self:
+    #     pass
+
+class BasePretrainedModel(BaseModel):
+
+    def __init__(
+        self,
+        config: BasePretrainedConfig,
+    ):
+        super().__init__(config)
+
+        self.is_loaded: bool = False
+
+    @abstractmethod
+    def load_pretrained(self) -> None:
+        """
+        Load model weights and related artifacts.
+        """
+        pass
+
+    @abstractmethod
+    def unload(self) -> None:
+        pass
+
+    def _check_is_loaded(self) -> None:
+
+        if not self.is_loaded:
+            raise RuntimeError(
+                f"Model '{self.name}' has not been loaded."
+            )
+
+    def to_dict(self) -> dict:
+
+        data = super().to_dict()
+
+        data["runtime"] = {
+            "is_loaded": self.is_loaded
+        }
+
+        return data
+
+class BaseCaptioningModel(BasePretrainedModel):
+
+    def __init__(self, config: BaseCaptioningConfig):
+        super().__init__(config)
+
+        self.config = config
+
+    @abstractmethod
+    def caption(self, input_data: Any,**kwargs,) -> str:
+        """
+        Generate a caption from the supplied input.
+        """
+        pass
+
+class BaseTextGeneratorModel(BasePretrainedModel):
+
+    def __init__(self, config: BaseTextGeneratorConfig):
+        super().__init__(config)
+
+    @abstractmethod
+    def generate(
+        self,
+        prompt: str,
+        **kwargs,
+    ) -> str:
+        """
+        Generate text from a prompt.
+        """
+        pass
+
+class TransformerImageCaptioningModel(BaseCaptioningModel):
+
+    def __init__(self, config: BaseCaptioningConfig):
+        super().__init__(config)
+        self._pipe = None
+
+    def load_pretrained(self) -> None:
+        self._pipe = pipeline(
+            "image-text-to-text",
+            model=self.config.model_name,
+            device=self.config.device,
+            trust_remote_code=self.config.trust_remote_code
+            )
+        self.is_loaded = True
+
+    def unload(self) -> None:
+        self._pipe = None
+        self.is_loaded = False
+
+    def caption(self,image_path: str | Path, prompt: str = "Describe the image.",**kwargs) -> str:
+
+        self._check_is_loaded()
+
+        image_path = str(image_path)
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "url": image_path,
+                    },
+                    {
+                        "type": "text",
+                        "text": prompt,
+                    },
+                ],
+            }
+        ]
+
+        result = self._pipe(
+            text=messages,
+            **kwargs,
+        )
+
+        generated_text = (
+            result[0]
+            ["generated_text"][1]
+            ["content"]
+        )
+
+        return clean_text(generated_text)
+
+class OllamaTableCaptioningModel(BaseCaptioningModel):
+    def __init__(self, config: OllamaCaptioningConfig):
+        super().__init__(config)
+
+        self.config = config
+        self._client = None
+
+    def load_pretrained(self) -> None:
+        self._client = ollama.Client(host=self.config.host)
+        self.is_loaded = True
+
+    def unload(self) -> None:
+        self._client = None
+        self.is_loaded = False
+
+    def caption(self, input_data: Any, prompt: str | None = None,**kwargs,) -> str:
+
+        self._check_is_loaded()
+
+        if prompt is None:
+            prompt = (
+                "Describe the following table "
+                "in one consice paragraph " 
+                "in indonesian language "
+                "give me the most important information "
+                "and conclusion of the table "
+            )
+
+        table_text = self._serialize_table(
+            input_data
+        )
+
+        response = self._client.chat(
+            model=self.config.model_name,
+            messages=[
+                {
+                    "role": "user",
+                    "content":
+                        f"{prompt}\n\n"
+                        f"TABLE:\n{table_text}"
+                }
+            ],
+            options={
+                "temperature":
+                    self.config.temperature,
+                "top_p":
+                    self.config.top_p,
+                "num_predict":
+                    self.config.max_new_tokens,
+            },
+        )
+
+        return clean_text(
+            response["message"]["content"]
+        )
+
+    def _serialize_table(self, table: Any,) -> str:
+
+        if isinstance(table, str):
+            return table
+
+        return json.dumps(table, ensure_ascii=False, indent=2)
+
+    @classmethod
+    def from_folder(cls, directory: str | Path,) -> "OllamaTableCaptioningModel":
+
+        config = OllamaCaptioningConfig.load_json(
+            Path(directory) / "config.json"
+        )
+
+        model = cls(config)
+
+        model.load_pretrained()
+
+        return model

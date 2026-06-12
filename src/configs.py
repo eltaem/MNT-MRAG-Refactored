@@ -1,71 +1,88 @@
-from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Any, Self
-import json
 
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+)
 
-@dataclass(slots=True)
-class BaseConfig:
+class BaseConfig(BaseModel):
+
+    model_config = ConfigDict(
+        extra="forbid",
+        validate_assignment=True,
+    )
+
     name: str | None = None
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
-        return cls(**data)
-
-    def save_json(self, path: str | Path) -> Path:
+    def save_json(
+        self,
+        path: str | Path,
+    ) -> Path:
 
         path = Path(path)
 
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
-        with open(
-            path,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            json.dump(
-                self.to_dict(),
-                f,
-                indent=4,
-                sort_keys=True,
-                ensure_ascii=False
-            )
+        path.write_text(
+            self.model_dump_json(indent=4),
+            encoding="utf-8",
+        )
 
         return path
 
     @classmethod
-    def load_json(cls, path: str | Path) -> Self:
+    def load_json(
+        cls,
+        path: str | Path,
+    ):
 
         path = Path(path)
 
-        with open(
-            path,
-            "r",
-            encoding="utf-8"
-        ) as f:
+        return cls.model_validate_json(
+            path.read_text(
+                encoding="utf-8"
+            )
+        )
 
-            data = json.load(f)
 
-        return cls.from_dict(data)
-
-    def __post_init__(self):
-        self.validate()
-
-    def validate(self) -> None:
-        pass
+# ============================================================
+# ML
+# ============================================================
 
 class BaseMLConfig(BaseConfig):
+
     random_state: int | None = None
+
     device: str = "cpu"
 
-@dataclass(slots=True)
-class BasePretrainedConfig(BaseMLConfig):
 
-    model_name: str | None = None
+# ============================================================
+# BACKENDS
+# ============================================================
+
+class BackendConfig(BaseConfig):
+    pass
+
+
+class OllamaBackendConfig(BackendConfig):
+
+    host: str = "http://localhost:11434"
+
+    timeout: int = Field(
+        default=600,
+        gt=0,
+    )
+
+    keep_alive: str | int | None = None
+
+
+class TransformerBackendConfig(
+    BackendConfig
+):
 
     revision: str | None = None
 
@@ -77,79 +94,155 @@ class BasePretrainedConfig(BaseMLConfig):
 
     dtype: str | None = None
 
-    def validate(self) -> None:
 
-        if self.model_name is None:
-            raise ValueError(
-                "model_name cannot be empty."
-            )
+# ============================================================
+# PRETRAINED
+# ============================================================
 
-@dataclass
-class BaseCaptioningConfig(BasePretrainedConfig):
+class BasePretrainedConfig(BaseMLConfig):
 
-    max_new_tokens: int = 256
+    model_name: str
 
-    temperature: float = 0.7
 
-    top_p: float = 0.9
+# ============================================================
+# GENERATION PARAMETERS
+# ============================================================
 
-    do_sample: bool = True
+class TextGenerationConfig(BasePretrainedConfig):
 
-    def validate(self) -> None:
+    max_new_tokens: int = Field(
+        default=256,
+        gt=0,
+    )
 
-        super().validate()
+    temperature: float = Field(
+        default=0.7,
+        ge=0,
+    )
 
-        if self.max_new_tokens <= 0:
-            raise ValueError(
-                "max_new_tokens must be > 0."
-            )
-
-        if not 0 <= self.temperature:
-            raise ValueError(
-                "temperature must be >= 0."
-            )
-
-        if not 0 <= self.top_p <= 1:
-            raise ValueError(
-                "top_p must be between 0 and 1."
-            )
-
-@dataclass
-class OllamaCaptioningConfig(BaseCaptioningConfig):
-    host: str = "http://localhost:11434"
-
-@dataclass
-class BaseTextGeneratorConfig(BasePretrainedConfig):
-
-    max_new_tokens: int = 512
-
-    temperature: float = 0.7
-
-    top_p: float = 0.9
+    top_p: float = Field(
+        default=0.9,
+        ge=0,
+        le=1,
+    )
 
     do_sample: bool = True
 
-    def validate(self) -> None:
 
-        super().validate()
+# ============================================================
+# CAPTIONING
+# ============================================================
 
-        if self.max_new_tokens <= 0:
-            raise ValueError(
-                "max_new_tokens must be > 0."
-            )
+class BaseCaptioningConfig(TextGenerationConfig):
+    pass
 
-        if self.temperature < 0:
-            raise ValueError(
-                "temperature must be >= 0."
-            )
 
-        if not 0 <= self.top_p <= 1:
-            raise ValueError(
-                "top_p must be between 0 and 1."
-            )
+class BaseImageCaptioningConfig(BaseCaptioningConfig):
+    pass
 
-class ImageExtractorConfig(BaseConfig):
-    ...
 
-class TableExtractorConfig(BaseConfig):
-    ...
+class BaseTableCaptioningConfig(BaseCaptioningConfig):
+    pass
+
+
+class OllamaImageCaptioningConfig(BaseImageCaptioningConfig):
+
+    backend: OllamaBackendConfig = Field(
+        default_factory=OllamaBackendConfig
+    )
+
+
+class OllamaTableCaptioningConfig(BaseTableCaptioningConfig):
+
+    backend: OllamaBackendConfig = Field(
+        default_factory=OllamaBackendConfig
+    )
+
+
+class TransformerImageCaptioningConfig(BaseImageCaptioningConfig):
+
+    backend: TransformerBackendConfig = Field(
+        default_factory=TransformerBackendConfig
+    )
+
+
+class TransformerTableCaptioningConfig(BaseTableCaptioningConfig):
+
+    backend: TransformerBackendConfig = Field(
+        default_factory=TransformerBackendConfig
+    )
+
+
+# ============================================================
+# TEXT GENERATION
+# ============================================================
+
+class BaseTextGeneratorConfig(TextGenerationConfig):
+    pass
+
+
+class OllamaTextGeneratorConfig(BaseTextGeneratorConfig):
+
+    backend: OllamaBackendConfig = Field(
+        default_factory=OllamaBackendConfig
+    )
+
+class TransformerTextGeneratorConfig(BaseTextGeneratorConfig):
+
+    backend: TransformerBackendConfig = Field(
+        default_factory=TransformerBackendConfig
+    )
+
+# ============================================================
+# EXTRACTORS
+# ============================================================
+
+class BaseExtractorConfig(BaseConfig):
+    pass
+
+class TextExtractorConfig(BaseExtractorConfig):
+
+    merge_spans: bool = True
+
+    strip_whitespace: bool = True
+
+    skip_empty_blocks: bool = True
+
+    min_text_length: int = Field(
+        default=1,
+        ge=0,
+    )
+
+class ImageExtractorConfig(BaseExtractorConfig):
+
+    image_dir: Path = Path("images")
+
+    min_width: int = Field(
+        default=32,
+        gt=0,
+    )
+
+    min_height: int = Field(
+        default=32,
+        gt=0,
+    )
+
+    deduplicate: bool = True
+
+class TableExtractorConfig(BaseExtractorConfig):
+
+    skip_empty_tables: bool = True
+
+    min_rows: int = Field(
+        default=1,
+        ge=1,
+    )
+
+    min_columns: int = Field(
+        default=1,
+        ge=1,
+    )
+
+class PDFExtractorConfig(BaseExtractorConfig):
+    merge_pages:bool = False
+    pass

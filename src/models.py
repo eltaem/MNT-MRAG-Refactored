@@ -9,7 +9,7 @@ import numpy as np
 from transformers import pipeline
 
 from src.utility import clean_text
-from src.configs import BaseConfig, BasePretrainedConfig, BaseCaptioningConfig, BaseTextGeneratorConfig, OllamaCaptioningConfig
+from src.configs import BaseConfig, BasePretrainedConfig, BaseCaptioningConfig, BaseTextGeneratorConfig, OllamaTableCaptioningConfig, TransformerImageCaptioningConfig
 
 import ollama
 
@@ -60,9 +60,7 @@ class BaseModel(ABC):
 
 class BasePretrainedModel(BaseModel):
 
-    def __init__(
-        self,
-        config: BasePretrainedConfig,
+    def __init__(self, config: BasePretrainedConfig,
     ):
         super().__init__(config)
 
@@ -100,7 +98,6 @@ class BaseCaptioningModel(BasePretrainedModel):
 
     def __init__(self, config: BaseCaptioningConfig):
         super().__init__(config)
-
         self.config = config
 
     @abstractmethod
@@ -113,7 +110,9 @@ class BaseCaptioningModel(BasePretrainedModel):
 class BaseTextGeneratorModel(BasePretrainedModel):
 
     def __init__(self, config: BaseTextGeneratorConfig):
+
         super().__init__(config)
+        self.config = config
 
     @abstractmethod
     def generate(
@@ -126,10 +125,18 @@ class BaseTextGeneratorModel(BasePretrainedModel):
         """
         pass
 
-class TransformerImageCaptioningModel(BaseCaptioningModel):
+class BaseImageCaptioningModel(BaseCaptioningModel):
+    pass
 
-    def __init__(self, config: BaseCaptioningConfig):
+class BaseTableCaptioningModel(BaseCaptioningModel):
+    pass
+
+class TransformerImageCaptioningModel(BaseImageCaptioningModel):
+
+    def __init__(self, config: TransformerImageCaptioningConfig):
         super().__init__(config)
+        self.config = config
+
         self._pipe = None
 
     def load_pretrained(self) -> None:
@@ -137,7 +144,7 @@ class TransformerImageCaptioningModel(BaseCaptioningModel):
             "image-text-to-text",
             model=self.config.model_name,
             device=self.config.device,
-            trust_remote_code=self.config.trust_remote_code
+            trust_remote_code=self.config.backend.trust_remote_code
             )
         self.is_loaded = True
 
@@ -180,15 +187,15 @@ class TransformerImageCaptioningModel(BaseCaptioningModel):
 
         return clean_text(generated_text)
 
-class OllamaTableCaptioningModel(BaseCaptioningModel):
-    def __init__(self, config: OllamaCaptioningConfig):
+class OllamaTableCaptioningModel(BaseTableCaptioningModel):
+    def __init__(self, config: OllamaTableCaptioningConfig):
         super().__init__(config)
-
         self.config = config
+
         self._client = None
 
     def load_pretrained(self) -> None:
-        self._client = ollama.Client(host=self.config.host)
+        self._client = ollama.Client(host=self.config.backend.host)
         self.is_loaded = True
 
     def unload(self) -> None:
@@ -246,7 +253,7 @@ class OllamaTableCaptioningModel(BaseCaptioningModel):
     @classmethod
     def from_folder(cls, directory: str | Path,) -> "OllamaTableCaptioningModel":
 
-        config = OllamaCaptioningConfig.load_json(
+        config = OllamaTableCaptioningConfig.load_json(
             Path(directory) / "config.json"
         )
 

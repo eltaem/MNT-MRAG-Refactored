@@ -1,8 +1,7 @@
-from src.models import TransformerImageCaptioningModel, OllamaTableCaptioningModel
-from src.configs import BaseCaptioningConfig, OllamaCaptioningConfig
-
 def test_image_captioning():
-    captioning_config = BaseCaptioningConfig(model_name="Qwen/Qwen3-VL-2B-Instruct", device="cuda", trust_remote_code=True, max_new_tokens=512)
+    from src.models import TransformerImageCaptioningModel
+    from src.configs import TransformerImageCaptioningConfig
+    captioning_config = TransformerImageCaptioningConfig(model_name="Qwen/Qwen3-VL-2B-Instruct", device="cuda", max_new_tokens=512, backend={"trust_remote_code": True})
     captioning_model = TransformerImageCaptioningModel(captioning_config)
     captioning_model.load_pretrained()
 
@@ -11,6 +10,8 @@ def test_image_captioning():
     print(caption)
 
 def test_table_captioning():
+    from src.models import OllamaTableCaptioningModel
+    from src.configs import OllamaTableCaptioningConfig
     table = [
             [
             "NAMA : An. NCN\nNAMA KELUARGA: R\nUSIA : 2 th\nBANGSAL : RII BED 10\nNO. RM : 1230XXXX\nJENIS KELAMIN : Perempuan",
@@ -132,7 +133,7 @@ def test_table_captioning():
             "4"
             ]
         ]
-    captioning_config = OllamaCaptioningConfig(model_name="gpt-oss", device="cuda", trust_remote_code=True, max_new_tokens=512)
+    captioning_config = OllamaTableCaptioningConfig(model_name="gpt-oss", device="cuda", max_new_tokens=512)
     captioning_model = OllamaTableCaptioningModel(captioning_config)
     captioning_model.load_pretrained()
     caption = captioning_model.caption(input_data=table, prompt="Analyze this table and provide a concise one paragraph description in indonesian")
@@ -140,7 +141,64 @@ def test_table_captioning():
     print(caption)
     
 def check_len():
-    text = "Tabel tersebut merupakan formulir penilaian risiko gizi (PYMS) untuk seorang anak perempuan berusia 2 tahun (An. NCN) dengan berat badan 9 kg, tinggi badan 79,3 cm, dan BMI 14,3 kg/m², yang terdaftar di rumah sakit dengan nomor RM 1230XXXX. Pada langkah 1 dijelaskan bahwa BMI berada di bawah acuan, namun tidak ada penurunan berat badan. Langkah 2 menegaskan tidak ada penurunan berat badan akhir‑akhir. Langkah 3 menunjukkan asupan makan tetap normal satu minggu terakhir, dan langkah 4 menyatakan tidak ada risiko gizi yang dipengaruhi kondisi anak dalam satu minggu ke depan. Dengan skor 0 pada setiap langkah, total skor PYMS yang tercatat adalah 4, yang menandakan tingkat risiko gizi yang sangat rendah."
+    text = "Tabel tersebut memuat rekaman klinis seorang anak perempuan 2 tahun bernama An. NCN (RM 1230XXXX, bangsal RII BED 10) dengan berat badan 9 kg, tinggi badan 79,3 cm"
     print(len(text))
+
+def test_hashing():
+    from src.utility import generate_document_id
+    a_id = generate_document_id("data/PDFs/(HIL) DEXTRA INKASERATA + MECKEL’S DIVERTICUM POST EXPLORASI .pdf")
+    b_id = generate_document_id("data/PDFs/ANAK DENGAN TB PARU , PNEUMONIA , GIZI BURUK MARASMUS.pdf")
+    print(a_id)
+    print(b_id)
+    print(a_id == b_id)
+
+def test_image_extractor():
+    from src.configs import ImageExtractorConfig
+    from src.extractors import ImageExtractor
+    from src.utility import generate_document_id
+    import fitz
+    config = ImageExtractorConfig(image_dir="data/images")
+    extracttt = ImageExtractor(config)
+    doc_name = "data/PDFs/(HIL) DEXTRA INKASERATA + MECKEL’S DIVERTICUM POST EXPLORASI .pdf"
+    doc = fitz.open(doc_name)
+    page_number = 33
+    page = doc.load_page(page_number)
+    print(generate_document_id(doc_name))
+    nodes = extracttt.extract(page, generate_document_id(doc_name))
+    for node in nodes:
+        print(node)
+
+def test_text_extractor():
+    from src.configs import TextExtractorConfig
+    from src.extractors import TextExtractor
+    from src.utility import generate_document_id
+    import fitz
+    config = TextExtractorConfig()
+    extracttt = TextExtractor(config)
+    doc_name = "data/PDFs/(HIL) DEXTRA INKASERATA + MECKEL’S DIVERTICUM POST EXPLORASI .pdf"
+    doc = fitz.open(doc_name)
+    page_number = 33
+    page = doc.load_page(page_number)
+    print(generate_document_id(doc_name))
+    nodes = extracttt.extract(page, generate_document_id(doc_name))
+    for node in nodes:
+        print(node)
+
+def test_table_extractor():
+    from src.configs import TableExtractorConfig
+    from src.extractors import TableExtractor
+    from src.utility import generate_document_id
+    import fitz
+    config = TableExtractorConfig()
+    extracttt = TableExtractor(config)
+    doc_name = "data/PDFs/(HIL) DEXTRA INKASERATA + MECKEL’S DIVERTICUM POST EXPLORASI .pdf"
+    doc = fitz.open(doc_name)
+    page_number = 29
+    page = doc.load_page(page_number)
+    print(generate_document_id(doc_name))
+    nodes = extracttt.extract(page, generate_document_id(doc_name))
+    for node in nodes:
+        print(node)
+
 if __name__ == "__main__":
-    check_len()
+    test_table_extractor()

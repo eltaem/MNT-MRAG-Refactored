@@ -365,16 +365,16 @@ async def test_apdfs_processor(path:Path):
                 merger_config,
             ),
         ],
-        enrichers= [
-            ImageCaptionEnricher(
-                image_enricher_config,
-                image_captioning_model
-            ),
-            TableCaptionEnricher(
-                table_enricher_config,
-                table_captioning_model
-            )
-        ]
+        # enrichers= [
+        #     ImageCaptionEnricher(
+        #         image_enricher_config,
+        #         image_captioning_model
+        #     ),
+        #     TableCaptionEnricher(
+        #         table_enricher_config,
+        #         table_captioning_model
+        #     )
+        # ]
     )
     output_path = path / "nodes.json"
     nodes = await processor.aprocess_pdfs_dir("data/test")
@@ -384,11 +384,26 @@ async def test_apdfs_processor(path:Path):
         output_path,
     )
 
+def test_dpmc(path: Path):
+    from src.processors import PDFProcessor
+    from src.embedder import Embedder
+    from src.configs import DoublePassMergingChunkerConfig
+    from src.chunker import DoublePassMergingChunker
+    dpmc_conf = DoublePassMergingChunkerConfig()
+    embedder = Embedder(model_name="Octen/Octen-Embedding-8B", target_dimension=768)
+    dpmc = DoublePassMergingChunker(dpmc_conf, embedder)
+    nodes_path = Path("outputs/run-20260630_145750/debug/nodes.json")
+    nodes = PDFProcessor.from_json(nodes_path)
+    output_path = path / "chunks.json"
+    chunks = dpmc.chunk(nodes)
+    dpmc.to_json(chunks, output_path)
+
+    
 def runtime() -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     pdf_debug_dir = Path("outputs") / f"run-{timestamp}" / "debug"
     return pdf_debug_dir
 
 if __name__ == "__main__":
-    asyncio.run(test_apdfs_processor(runtime()))
+    test_dpmc(runtime())
     # asyncio.run(test_apdfs_processor(runtime()))

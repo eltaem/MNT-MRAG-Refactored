@@ -7,7 +7,7 @@ from pathlib import Path
 
 from src.enrichers import BaseNodeEnricher
 from src.extractors import PDFExtractor
-from src.nodes import BaseNode
+from src.nodes import NODE_REGISTRY, BaseNode
 from src.configs import (
     BaseNodeProcessorConfig,
     PDFProcessorConfig,
@@ -17,7 +17,7 @@ from src.configs import (
 )
 from src.nodes import TextNode
 import re
-from src.utility import collect_pdfs
+from src.utility import collect_pdfs, load_json, save_models
 
 class BaseNodeProcessor(ABC):
     """
@@ -237,12 +237,6 @@ class PDFProcessor:
         Processors
          ↓
         Enrichers
-         ↓
-        ChunkBuilder
-         ↓
-        Embedder
-         ↓
-        VectorStore
     """
 
     def __init__(
@@ -360,24 +354,30 @@ class PDFProcessor:
         path: str | Path,
     ) -> Path:
 
-        path = Path(path)
-
-        path.parent.mkdir(parents=True, exist_ok=True,)
-
-        payload = [
-            node.model_dump(
-                mode="json",
-            )
-            for node in nodes
-        ]
-
-        path.write_text(
-            json.dumps(
-                payload,
-                indent=4,
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
+        return save_models(
+            nodes,
+            path,
         )
+    
+    @staticmethod
+    def from_json(
+        path: str | Path,
+    ) -> list[BaseNode]:
 
-        return path
+        payload = load_json(path)
+
+        nodes: list[BaseNode] = []
+
+        for item in payload:
+
+            node_type = item.pop(
+                "node_type"
+            )
+            item.pop("node_id", None)
+
+            node_cls = NODE_REGISTRY[node_type]
+
+            node = node_cls.model_validate(item)
+            nodes.append(node)
+
+        return nodes

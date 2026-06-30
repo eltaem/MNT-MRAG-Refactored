@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, Literal
 
 import hashlib
 import json
@@ -17,6 +18,11 @@ from pydantic import (
 
 from src.utility import BBox
 
+NODE_REGISTRY: dict[str, type[BaseNode]] = {}
+
+def register_node(cls: type[BaseNode]):
+    NODE_REGISTRY[cls.node_type] = cls
+    return cls
 
 def generate_node_id(
     node: "BaseNode",
@@ -69,6 +75,8 @@ def generate_node_id(
 
 class BaseNode(BaseModel, ABC):
 
+    node_type: ClassVar[str]
+
     model_config = ConfigDict(
         extra="forbid",
         frozen="True",
@@ -91,6 +99,11 @@ class BaseNode(BaseModel, ABC):
     @property
     def node_id(self) -> str:
         return generate_node_id(self)
+    
+    @computed_field(alias="node_type")
+    @property
+    def node_type_name(self) -> str:
+        return self.node_type
 
     @property
     def x0(self) -> float:
@@ -139,8 +152,10 @@ class BaseNode(BaseModel, ABC):
         """
         pass
 
-
+@register_node
 class TextNode(BaseNode):
+
+    node_type = "text"
 
     text: str
 
@@ -148,8 +163,10 @@ class TextNode(BaseNode):
     def content(self) -> str:
         return self.text
 
-
+@register_node
 class ImageNode(BaseNode):
+
+    node_type = "image"
 
     image_path: Path
 
@@ -170,10 +187,15 @@ class ImageNode(BaseNode):
         if self.ocr_text:
             parts.append(self.ocr_text)
 
-        return "\n".join(parts)
+        if not parts:
+            return ""
+        
+        return "\n".join(filter(None, parts)).strip()
 
-
+@register_node
 class TableNode(BaseNode):
+
+    node_type = "table"
 
     rows: list[list[Any]]
 
@@ -185,7 +207,10 @@ class TableNode(BaseNode):
         if self.caption:
             return self.caption
 
-        return ""
+        return "\n".join(
+            " | ".join(str(c) for c in row)
+            for row in self.rows
+        )
 
     @property
     def row_count(self) -> int:

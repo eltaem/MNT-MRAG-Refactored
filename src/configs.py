@@ -414,8 +414,40 @@ class TextMergerConfig(BaseNodeProcessorConfig,):
 
     merge_metadata: bool = False
 
-class ChunkBuilderConfig(BaseConfig):
-    pass
+class BaseChunkerConfig(BaseConfig):
+
+    enabled: bool = True
+
+    chunk_size: int = Field(
+        default=512,
+        gt=0,
+    )
+
+    chunk_overlap: int = Field(
+        default=64,
+        ge=0,
+    )
+
+class DoublePassMergingChunkerConfig(BaseChunkerConfig):
+
+    initial_threshold: float = Field(
+        default=0.4,
+        ge=0,
+        le=1
+    )
+
+    appending_threshold: float = Field(
+        default=0.5,
+        ge=0,
+        le=1
+    )
+
+    merging_threshold: float = Field(
+        default=0.5,
+        ge=0,
+        le=1
+    )
+
 class EmbedderConfig(BaseConfig):
     pass
 class VectorStoreConfig(BaseConfig):

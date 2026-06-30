@@ -5,10 +5,12 @@ import re
 import hashlib
 from pathlib import Path
 import uuid
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, TypeVar
 import fitz
 from typing import TYPE_CHECKING
 import logging
+
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from src.nodes import BaseNode
@@ -176,3 +178,115 @@ def configure_logging(level: LogLevel):
         ),
     )
     logger.setLevel(int(level))
+
+configure_logging(LogLevel.DEBUG)
+
+T = TypeVar("T", bound=BaseModel)
+
+# ==========================================================
+# Single model
+# ==========================================================
+
+def save_model(
+    model: BaseModel,
+    path: str | Path,
+) -> Path:
+
+    path = Path(path)
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    path.write_text(
+        json.dumps(
+            model.model_dump(
+                mode="json",
+            ),
+            indent=4,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    return path
+
+
+def load_model(
+    path: str | Path,
+    model_cls: type[T],
+) -> T:
+
+    path = Path(path)
+
+    payload = json.loads(
+        path.read_text(
+            encoding="utf-8",
+        )
+    )
+
+    return model_cls.model_validate(
+        payload,
+    )
+
+def save_models(
+    models: list[BaseModel],
+    path: str | Path,
+) -> Path:
+
+    path = Path(path)
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    payload = [
+        model.model_dump(
+            mode="json",
+        )
+        for model in models
+    ]
+
+    path.write_text(
+        json.dumps(
+            payload,
+            indent=4,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    return path
+
+
+def load_models(
+    path: str | Path,
+    model_cls: type[T],
+) -> list[T]:
+
+    path = Path(path)
+
+    payload = load_json(path)
+
+    return [
+        model_cls.model_validate(item)
+        for item in payload
+    ]
+
+def load_json(
+    path: str | Path,
+) -> Any:
+
+    return json.loads(
+        Path(path).read_text(
+            encoding="utf-8"
+        )
+    )
+
+def save_json(
+    obj: Any,
+    path: str | Path,
+):
+    ...

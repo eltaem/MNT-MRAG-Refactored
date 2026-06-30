@@ -1,9 +1,17 @@
+from __future__ import annotations
+from enum import IntEnum
+import json
 import re
 import hashlib
 from pathlib import Path
 import uuid
-from typing import TypeAlias
+from typing import Any, TypeAlias
 import fitz
+from typing import TYPE_CHECKING
+import logging
+
+if TYPE_CHECKING:
+    from src.nodes import BaseNode
 
 def clean_text(text: str) -> str:
     """
@@ -90,3 +98,81 @@ def center(bbox: BBox,) -> tuple[float, float]:
         (bbox[0] + bbox[2]) / 2,
         (bbox[1] + bbox[3]) / 2,
     )
+
+def sort_nodes(nodes: list[BaseNode]) -> list[BaseNode]:
+    """
+    Natural reading order:
+    page -> top -> left
+    """
+
+    return sorted(
+        nodes,
+        key=lambda node: (
+            node.page_number,
+            node.y0,
+            node.x0,
+        ),
+    )
+
+def collect_pdfs(directory: str | Path) -> list[Path]:
+    directory = Path(directory)
+
+    if not directory.exists():
+        raise FileNotFoundError(f"Directory not found: {directory}")
+
+    return sorted(directory.glob("*.pdf"), key=lambda p: p.name)
+
+from typing import Any
+
+
+def serialize_table(table: Any) -> str:
+    if isinstance(table, str):
+        return table
+
+    if not isinstance(table, list):
+        return str(table)
+
+    if not table:
+        return ""
+
+    lines: list[str] = []
+
+    # Header
+    header = [
+        "" if c is None else str(c)
+        for c in table[0]
+    ]
+    lines.append(" | ".join(header))
+    lines.append(" | ".join("---" for _ in header))
+
+    # Rows
+    for row in table[1:]:
+        lines.append(
+            " | ".join(
+                "" if c is None else str(c)
+                for c in row
+            )
+        )
+
+    return "\n".join(lines)
+
+logger = logging.getLogger("MNT_MRAG")
+
+class LogLevel(IntEnum):
+    SILENT = logging.CRITICAL + 1
+    DEBUG = logging.DEBUG
+    INFO = logging.INFO
+    WARNING = logging.WARNING
+    ERROR = logging.ERROR
+    CRITICAL = logging.CRITICAL
+
+def configure_logging(level: LogLevel):
+    logging.basicConfig(
+        level=int(level),
+        format=(
+            "%(asctime)s | "
+            "%(levelname)s | "
+            "%(message)s"
+        ),
+    )
+    logger.setLevel(int(level))

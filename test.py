@@ -1,13 +1,20 @@
+import asyncio
+from pathlib import Path
+from datetime import datetime
+
 def test_image_captioning():
-    from src.models import TransformerImageCaptioningModel
-    from src.configs import TransformerImageCaptioningConfig
-    captioning_config = TransformerImageCaptioningConfig(model_name="Qwen/Qwen3-VL-2B-Instruct", device="cuda", max_new_tokens=512, backend={"trust_remote_code": True})
-    captioning_model = TransformerImageCaptioningModel(captioning_config)
+    from src.configs import OllamaImageCaptioningConfig
+    from src.models import OllamaImageCaptioningModel
+    # from src.configs import TransformerImageCaptioningConfig
+    # from src.models import TransformerImageCaptioningModel
+    captioning_config = OllamaImageCaptioningConfig(model_name="qwen3.5:9b", device="cuda", max_new_tokens=512)
+    captioning_model = OllamaImageCaptioningModel(captioning_config)
     captioning_model.load_pretrained()
+    caption1 = captioning_model.caption(input_data="data/images/0c0ea51a-cd46-5f4c-8d04-61c541aca26f/page_013/image_001_b173d73a.png")
+    caption2 = captioning_model.caption(input_data="data/images/0c0ea51a-cd46-5f4c-8d04-61c541aca26f/page_013/image_002_c4c1ab7b.png")
 
-    caption = captioning_model.caption(image_path="data/images/test/page40_xref3460.png", prompt="Describe the image in indonesian language")
-
-    print(caption)
+    print(caption1)
+    print(caption2)
 
 def test_table_captioning():
     from src.models import OllamaTableCaptioningModel
@@ -133,10 +140,10 @@ def test_table_captioning():
             "4"
             ]
         ]
-    captioning_config = OllamaTableCaptioningConfig(model_name="gpt-oss", device="cuda", max_new_tokens=512)
+    captioning_config = OllamaTableCaptioningConfig(model_name="qwen3.5:9b", device="cuda", max_new_tokens=512)
     captioning_model = OllamaTableCaptioningModel(captioning_config)
     captioning_model.load_pretrained()
-    caption = captioning_model.caption(input_data=table, prompt="Analyze this table and provide a concise one paragraph description in indonesian")
+    caption = captioning_model.caption(input_data=table)
 
     print(caption)
     
@@ -200,5 +207,188 @@ def test_table_extractor():
     for node in nodes:
         print(node)
 
+def test_pdf_extractor():
+    from src.configs import PDFExtractorConfig
+    from src.extractors import PDFExtractor
+    config = PDFExtractorConfig()
+
+    extractor = PDFExtractor(config)
+
+    nodes = extractor.extract(
+        "data/test/(HIL) DEXTRA INKASERATA + MECKEL’S DIVERTICUM POST EXPLORASI .pdf"
+    )
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pdf_debug_path = Path("outputs") / f"run-{timestamp}" / "debug" / "nodes.json"
+    PDFExtractor.save_json(nodes, pdf_debug_path)
+
+def test_pdfs_extractor():
+    from src.configs import PDFExtractorConfig
+    from src.extractors import PDFExtractor
+    config = PDFExtractorConfig()
+    extractor = PDFExtractor(config)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pdf_debug_dir = Path("outputs") / f"run-{timestamp}" / "debug"
+    documents = extractor.extract_many("data/test")
+    for i, (path, nodes) in enumerate(documents.items()):
+        print(path, len(nodes))
+        PDFExtractor.save_json(nodes, pdf_debug_dir / "many_documents" / f"document_{i}.json")
+
+def test_pdf_processor(path:Path):
+    from src.processors import PDFProcessor, RemoveBeforePatternProcessor, TextMerger
+    from src.configs import (
+        PDFExtractorConfig,
+        RemoveBeforePatternProcessorConfig,
+        TextMergerConfig,
+        DEFAULT_FRONT_MATTER_PATTERNS,
+        TextMergeMode
+    )
+    from src.extractors import PDFExtractor
+    config = PDFExtractorConfig()
+    extractor = PDFExtractor(config)
+    remove_config = RemoveBeforePatternProcessorConfig(
+        patterns=DEFAULT_FRONT_MATTER_PATTERNS
+    )
+    merger_config = TextMergerConfig(
+        mode=TextMergeMode.DOCUMENT
+    )
+    processor = PDFProcessor(
+        extractor=extractor,
+        processors=[
+            RemoveBeforePatternProcessor(
+                remove_config,
+            ),
+            TextMerger(
+                merger_config,
+            ),
+        ],
+    )
+    output_path = path / "nodes.json"
+    nodes = processor.process_pdf(
+        "data/test/(HIL) DEXTRA INKASERATA + MECKEL’S DIVERTICUM POST EXPLORASI .pdf",
+    )
+
+    PDFProcessor.to_json(
+        nodes,
+        output_path,
+    )
+
+def test_pdfs_processor(path:Path):
+    from src.processors import PDFProcessor, RemoveBeforePatternProcessor, TextMerger
+    from src.configs import (
+        PDFExtractorConfig,
+        PDFProcessorConfig,
+        RemoveBeforePatternProcessorConfig,
+        TextMergerConfig,
+        DEFAULT_FRONT_MATTER_PATTERNS,
+        TextMergeMode
+    )
+    from src.extractors import PDFExtractor
+    processor_config = PDFProcessorConfig()
+    config = PDFExtractorConfig()
+    extractor = PDFExtractor(config)
+    remove_config = RemoveBeforePatternProcessorConfig(
+        patterns=DEFAULT_FRONT_MATTER_PATTERNS
+    )
+    merger_config = TextMergerConfig(
+        mode=TextMergeMode.DOCUMENT
+    )
+    processor = PDFProcessor(
+        config=processor_config,
+        extractor=extractor,
+        processors=[
+            RemoveBeforePatternProcessor(
+                remove_config,
+            ),
+            TextMerger(
+                merger_config,
+            ),
+        ],
+    )
+    output_path = path / "nodes.json"
+    nodes = processor.process_pdfs_dir("data/test")
+
+    PDFProcessor.to_json(
+        nodes,
+        output_path,
+    )
+
+async def test_apdfs_processor(path:Path):
+    from src.processors import PDFProcessor, RemoveBeforePatternProcessor, TextMerger
+    from src.configs import (
+        PDFExtractorConfig,
+        PDFProcessorConfig,
+        RemoveBeforePatternProcessorConfig,
+        TextMergerConfig,
+        DEFAULT_FRONT_MATTER_PATTERNS,
+        TextMergeMode,
+        OllamaImageCaptioningConfig,
+        OllamaTableCaptioningConfig,
+        ImageCaptionEnricherConfig,
+        TableCaptionEnricherConfig
+
+    )
+    from src.extractors import PDFExtractor
+    from src.models import (
+        OllamaImageCaptioningModel,
+        OllamaTableCaptioningModel
+    )
+    from src.enrichers import (
+        ImageCaptionEnricher,
+        TableCaptionEnricher
+    )
+    processor_config = PDFProcessorConfig()
+    extractor_config = PDFExtractorConfig()
+    extractor = PDFExtractor(extractor_config)
+    remove_config = RemoveBeforePatternProcessorConfig(
+        patterns=DEFAULT_FRONT_MATTER_PATTERNS
+    )
+    merger_config = TextMergerConfig(
+        mode=TextMergeMode.DOCUMENT
+    )
+    image_captioning_config = OllamaImageCaptioningConfig(model_name="qwen3.5:9b", device="cuda", max_new_tokens=512)
+    image_captioning_model = OllamaImageCaptioningModel(image_captioning_config)
+    image_captioning_model.load_pretrained()
+    table_captioning_config = OllamaTableCaptioningConfig(model_name="qwen3.5:9b", device="cuda", max_new_tokens=512)
+    table_captioning_model = OllamaTableCaptioningModel(table_captioning_config)
+    table_captioning_model.load_pretrained()
+    image_enricher_config = ImageCaptionEnricherConfig(batch_size=2)
+    table_enricher_config = TableCaptionEnricherConfig(batch_size=2)
+
+    processor = PDFProcessor(
+        config=processor_config,
+        extractor=extractor,
+        processors=[
+            RemoveBeforePatternProcessor(
+                remove_config,
+            ),
+            TextMerger(
+                merger_config,
+            ),
+        ],
+        enrichers= [
+            ImageCaptionEnricher(
+                image_enricher_config,
+                image_captioning_model
+            ),
+            TableCaptionEnricher(
+                table_enricher_config,
+                table_captioning_model
+            )
+        ]
+    )
+    output_path = path / "nodes.json"
+    nodes = await processor.aprocess_pdfs_dir("data/test")
+
+    PDFProcessor.to_json(
+        nodes,
+        output_path,
+    )
+
+def runtime() -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pdf_debug_dir = Path("outputs") / f"run-{timestamp}" / "debug"
+    return pdf_debug_dir
+
 if __name__ == "__main__":
-    test_table_extractor()
+    asyncio.run(test_apdfs_processor(runtime()))
+    # asyncio.run(test_apdfs_processor(runtime()))

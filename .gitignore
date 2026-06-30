@@ -222,3 +222,5 @@ data/PDFs/*
 data/QA/*
 data/images/*
 .vscode
+outputs/*
+data/test

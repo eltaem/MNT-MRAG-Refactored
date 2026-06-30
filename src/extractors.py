@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Self
+import json
 
 from src.configs import (
     BaseExtractorConfig,
@@ -11,14 +12,22 @@ from src.configs import (
 )
 
 from src.nodes import (
+    BaseNode,
     TextNode,
     ImageNode,
     TableNode
 )
 import hashlib
 import fitz
-from src.utility import image_xref_to_bbox, BBox, EMPTY_BBOX
+from src.utility import (
+    image_xref_to_bbox,
+    BBox,
+    EMPTY_BBOX,
+    sort_nodes,
+    generate_document_id
+)
 from abc import ABC, abstractmethod
+
 
 class BaseExtractor(ABC):
     def __init__(self, config: BaseExtractorConfig):
@@ -132,10 +141,29 @@ class TextExtractor(BaseExtractor):
         )
 
 class ImageExtractor(BaseExtractor):
-    def __init__(self, config: ImageExtractorConfig):
+    """
+    Extract raster images embedded inside a PDF page.
+
+    Features
+    --------
+    - Reading-order sorting (top -> left)
+    - Runtime deduplication
+    - Idempotent filesystem writes
+    - Human-readable filenames:
+        image_001_87828e1b.png
+    - Stable image hashes for downstream RAG
+    """
+
+    def __init__(
+        self,
+        config: ImageExtractorConfig,
+    ):
         super().__init__(config)
+
         self.config = config
 
+        # Runtime optimization only.
+        # Not persisted.
         self._seen_hashes: set[str] = set()
 
         self.config.image_dir.mkdir(
@@ -143,7 +171,11 @@ class ImageExtractor(BaseExtractor):
             exist_ok=True,
         )
 
-    def extract(self, page: fitz.Page, document_id: str) -> list[ImageNode]:
+    def extract(
+        self,
+        page: fitz.Page,
+        document_id: str,
+    ) -> list[ImageNode]:
 
         images = page.get_images(
             full=True,
@@ -177,7 +209,12 @@ class ImageExtractor(BaseExtractor):
             if image_dict is None:
                 continue
 
-            image_bytes = image_dict["image"]
+            image_bytes = image_dict.get(
+                "image"
+            )
+
+            if image_bytes is None:
+                continue
 
             width = image_dict.get(
                 "width",
@@ -196,11 +233,11 @@ class ImageExtractor(BaseExtractor):
                 continue
 
             image_hash = self._compute_hash(
-                image_bytes,
+                image_bytes
             )
 
             if self._is_duplicate(
-                image_hash,
+                image_hash
             ):
                 continue
 
@@ -209,19 +246,24 @@ class ImageExtractor(BaseExtractor):
                     "xref": xref,
                     "image_bytes": image_bytes,
                     "image_hash": image_hash,
-                    "extension": image_dict.get(
-                        "ext",
-                        "png",
-                    ),
+                    "short_hash":
+                        image_hash[:8],
+                    "extension":
+                        image_dict.get(
+                            "ext",
+                            "png",
+                        ),
                     "width": width,
                     "height": height,
-                    "bbox": image_xref_to_bbox(
-                        page,
-                        xref,
-                    ),
+                    "bbox":
+                        image_xref_to_bbox(
+                            page,
+                            xref,
+                        ),
                 }
             )
 
+        # Natural reading order
         candidates.sort(
             key=lambda item: (
                 item["bbox"][1],
@@ -238,12 +280,19 @@ class ImageExtractor(BaseExtractor):
 
             image_path = (
                 page_dir
-                / f"image_{idx:03d}.{item['extension']}"
+                / (
+                    f"image_"
+                    f"{idx:03d}_"
+                    f"{item['short_hash']}."
+                    f"{item['extension']}"
+                )
             )
 
-            image_path.write_bytes(
-                item["image_bytes"]
-            )
+            # Idempotent extraction
+            if not image_path.exists():
+                image_path.write_bytes(
+                    item["image_bytes"]
+                )
 
             image_nodes.append(
                 ImageNode(
@@ -251,18 +300,35 @@ class ImageExtractor(BaseExtractor):
                     page_number=page.number + 1,
                     bbox=item["bbox"],
                     image_path=image_path,
-                    image_hash=item["image_hash"],
+                    image_hash=item[
+                        "image_hash"
+                    ],
                     metadata={
-                        "xref": item["xref"],
-                        "width": item["width"],
-                        "height": item["height"],
+                        "xref":
+                            item["xref"],
+                        "width":
+                            item["width"],
+                        "height":
+                            item["height"],
+                        "extension":
+                            item[
+                                "extension"
+                            ],
                     },
                 )
             )
 
         return image_nodes
 
-    def reset_cache(self) -> None:
+    def reset_cache(
+        self,
+    ) -> None:
+        """
+        Clear runtime deduplication cache.
+
+        Useful when processing a completely
+        separate batch of documents.
+        """
 
         self._seen_hashes.clear()
 
@@ -401,21 +467,99 @@ class TableExtractor(
         )
 
 class PDFExtractor:
-    def __init__(self, config:PDFExtractorConfig):
-        ...
+    """
+    Orchestrates extraction of:
+    - text nodes
+    - image nodes
+    - table nodes
+
+    Responsibilities:
+    - open PDF
+    - invoke page extractors
+    - aggregate nodes
+    - sort nodes into reading order
+
+    Non-responsibilities:
+    - captioning
+    - OCR
+    - chunking
+    - embedding
+    - indexing
+    - enrichment
+    """
+
+    def __init__(self,config: PDFExtractorConfig):
+        self.config = config
+
+        self.text_extractor = TextExtractor(config.text)
+
+        self.image_extractor = ImageExtractor(config.image)
+
+        self.table_extractor = TableExtractor(config.table)
 
     @classmethod
-    def from_config(cls, config:PDFExtractorConfig) -> Self:
-        ...
+    def from_config(cls, config: PDFExtractorConfig,) -> Self:
+        return cls(config)
 
-    def extract_pdf(self, path:str | Path) -> Path:
-        ...
+    def extract(self, path: str | Path,) -> list[BaseNode]:
 
-    async def aextract_pdf(self, path:str | Path) -> Path:
-        ...
+        path = Path(path)
 
-    def extract_pdfs(self, dir:str | Path) -> Path:
-        ...
+        document = fitz.open(path)
 
-    async def aextract_pdfs(self, dir:str | Path) -> Path:
-        ...
+        document_id = generate_document_id(path)
+
+        nodes: list[BaseNode] = []
+
+        try:
+            for page in document:
+
+                nodes.extend(
+                    self.text_extractor.extract(
+                        page,
+                        document_id,
+                    )
+                )
+
+                nodes.extend(
+                    self.image_extractor.extract(
+                        page,
+                        document_id,
+                    )
+                )
+
+                nodes.extend(
+                    self.table_extractor.extract(
+                        page,
+                        document_id,
+                    )
+                )
+
+        finally:
+            document.close()
+
+        return sort_nodes(nodes)
+
+    def extract_many(self, directory: str | Path, pattern: str = "*.pdf") -> dict[Path, list[BaseNode]]:
+
+        directory = Path(directory)
+
+        documents: dict[Path, list[BaseNode],] = {}
+
+        for pdf_path in sorted(directory.rglob(pattern)):
+            documents[pdf_path] = self.extract(pdf_path)
+
+        return documents
+
+    @staticmethod
+    def save_json(nodes: list[BaseNode], path: str | Path,) -> Path:
+
+        path = Path(path)
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        data = [node.model_dump(mode="json") for node in nodes]
+
+        path.write_text(json.dumps(data, indent=4, ensure_ascii=False), encoding="utf-8",)
+
+        return path

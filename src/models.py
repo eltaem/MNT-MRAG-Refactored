@@ -8,8 +8,8 @@ import logging
 import numpy as np
 from transformers import pipeline
 
-from src.utility import clean_text
-from src.configs import BaseConfig, BasePretrainedConfig, BaseCaptioningConfig, BaseTextGeneratorConfig, OllamaTableCaptioningConfig, TransformerImageCaptioningConfig
+from src.utility import clean_text, serialize_table
+from src.configs import BaseConfig, BaseImageCaptioningConfig, BasePretrainedConfig, BaseCaptioningConfig, BaseTableCaptioningConfig, BaseTextGeneratorConfig, OllamaImageCaptioningConfig, OllamaTableCaptioningConfig, TransformerImageCaptioningConfig
 
 import ollama
 
@@ -126,10 +126,20 @@ class BaseTextGeneratorModel(BasePretrainedModel):
         pass
 
 class BaseImageCaptioningModel(BaseCaptioningModel):
-    pass
+    def __init__(
+        self,
+        config: BaseImageCaptioningConfig,
+    ):
+        super().__init__(config)
+        self.config = config
 
 class BaseTableCaptioningModel(BaseCaptioningModel):
-    pass
+    def __init__(
+        self,
+        config: BaseTableCaptioningConfig,
+    ):
+        super().__init__(config)
+        self.config = config
 
 class TransformerImageCaptioningModel(BaseImageCaptioningModel):
 
@@ -152,13 +162,24 @@ class TransformerImageCaptioningModel(BaseImageCaptioningModel):
         self._pipe = None
         self.is_loaded = False
 
-    def caption(self,image_path: str | Path, prompt: str = "Describe the image.",**kwargs) -> str:
-
+    def caption(self, input_data: str | Path, prompt: str | None = None, **kwargs,) -> str:
         self._check_is_loaded()
 
-        image_path = str(image_path)
+        image_path = str(input_data)
+
+        if prompt is None:
+            prompt = self.config.user_prompt
 
         messages = [
+            {
+                "role": "system",
+                "content": (
+                    self.config.system_prompt
+                    .format(
+                        language=self.config.language
+                    )
+                ),
+            },
             {
                 "role": "user",
                 "content": [
@@ -171,12 +192,11 @@ class TransformerImageCaptioningModel(BaseImageCaptioningModel):
                         "text": prompt,
                     },
                 ],
-            }
+            },
         ]
 
         result = self._pipe(
             text=messages,
-            **kwargs,
         )
 
         generated_text = (
@@ -185,7 +205,72 @@ class TransformerImageCaptioningModel(BaseImageCaptioningModel):
             ["content"]
         )
 
-        return clean_text(generated_text)
+        return clean_text(
+            generated_text
+        )
+    
+class OllamaImageCaptioningModel(BaseImageCaptioningModel):
+    def __init__(
+        self,
+        config: OllamaImageCaptioningConfig,
+    ):
+        super().__init__(config)
+        self.config = config
+        self._client: ollama.Client | None = None
+
+    def load_pretrained(self) -> None:
+        self._client = ollama.Client(
+            host=self.config.backend.host
+        )
+        self.is_loaded = True
+
+    def unload(self) -> None:
+        self._client = None
+        self.is_loaded = False
+
+    def caption(self, input_data: str | Path, prompt: str | None = None, **kwargs,) -> str:
+
+        self._check_is_loaded()
+
+        image_path = str(input_data)
+
+        if prompt is None:
+            prompt = self.config.user_prompt
+
+        system_prompt = (
+            self.config.system_prompt
+            .format(
+                language=self.config.language
+            )
+        )
+
+        response = self._client.chat(
+            model=self.config.model_name,
+            think=self.config.backend.think,
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "images": [image_path],
+                },
+            ],
+            options={
+                "temperature":
+                    self.config.temperature,
+                "top_p":
+                    self.config.top_p,
+                "num_predict":
+                    self.config.max_new_tokens,
+            },
+        )
+
+        return clean_text(
+            response.message.content
+        )
 
 class OllamaTableCaptioningModel(BaseTableCaptioningModel):
     def __init__(self, config: OllamaTableCaptioningConfig):
@@ -202,32 +287,44 @@ class OllamaTableCaptioningModel(BaseTableCaptioningModel):
         self._client = None
         self.is_loaded = False
 
-    def caption(self, input_data: Any, prompt: str | None = None,**kwargs,) -> str:
+    def caption(
+        self,
+        input_data: Any,
+        prompt: str | None = None,
+        **kwargs,
+    ) -> str:
 
         self._check_is_loaded()
 
         if prompt is None:
-            prompt = (
-                "Describe the following table "
-                "in one consice paragraph " 
-                "in indonesian language "
-                "give me the most important information "
-                "and conclusion of the table "
-            )
+            prompt = self.config.user_prompt
 
-        table_text = self._serialize_table(
+        system_prompt = (
+            self.config.system_prompt
+            .format(
+                language=self.config.language
+            )
+        )
+
+        table_text = serialize_table(
             input_data
         )
 
         response = self._client.chat(
             model=self.config.model_name,
+            think=self.config.backend.think,
             messages=[
                 {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
                     "role": "user",
-                    "content":
+                    "content": (
                         f"{prompt}\n\n"
                         f"TABLE:\n{table_text}"
-                }
+                    ),
+                },
             ],
             options={
                 "temperature":
@@ -240,15 +337,8 @@ class OllamaTableCaptioningModel(BaseTableCaptioningModel):
         )
 
         return clean_text(
-            response["message"]["content"]
+            response.message.content
         )
-
-    def _serialize_table(self, table: Any,) -> str:
-
-        if isinstance(table, str):
-            return table
-
-        return json.dumps(table, ensure_ascii=False, indent=2)
 
     @classmethod
     def from_folder(cls, directory: str | Path,) -> "OllamaTableCaptioningModel":

@@ -28,11 +28,11 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
     - async support
     """
 
-    modele: SentenceTransformer = Field(default=None,exclude=True)
+    modele: SentenceTransformer | None = Field(default=None,exclude=True)
 
     config: EmbedderConfig = Field(default_factory=EmbedderConfig)
 
-    _full_dimension: int = PrivateAttr()
+    _full_dimension: int = PrivateAttr(default=-1)
 
     _cache: dict[str, list[float]] = PrivateAttr(default_factory=dict)
 
@@ -49,37 +49,11 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
     ):
         super().__init__(model_name=config.model_name, **kwargs)
 
-        model = SentenceTransformer(
-            config.model_name,
-            device=config.device,
-            trust_remote_code=True,
-            model_kwargs={
-                "dtype": config.dtype
-            }
-        )
-
-        model.max_seq_length = config.max_seq_length
-
-        model.eval()
-
         object.__setattr__(self, "config", config)
-
-        # NOTE:
-        # intentionally named "modele" because
-        # using "model" conflicts with Pydantic internals.
-        object.__setattr__(self, "modele", model)
 
         object.__setattr__(self, "_cache", {})
 
-        sample_emb = self._encode_single("-")
-
-        object.__setattr__(self, "_full_dimension", len(sample_emb),)
-        
-        if (config.target_dimension is not None) and (config.target_dimension > self._full_dimension):
-                raise ValueError(
-                    f"target_dimension={config.target_dimension} "
-                    f"exceeds model dimension={self._full_dimension}"
-                )
+        object.__setattr__(self, "_full_dimension", -1)
         
         clear_gpu()
 
@@ -92,15 +66,53 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         return self.config.model_name.replace("/", "-").replace(" ", "_")
     
     @property
-    def embedding_dimension(self) -> int:
-        return (
-            self.config.target_dimension
-            or self._full_dimension
-        )
+    def embedding_dimension(self):
+
+        if self.config.target_dimension is not None:
+            return self.config.target_dimension
+
+        if self._full_dimension <= 0:
+            raise RuntimeError(
+                "Embedding dimension unknown. "
+                "Call load() first or specify target_dimension."
+            )
+
+        return self._full_dimension
 
     # =========================================================
     # INTERNAL HELPERS
     # =========================================================
+
+    def load(self):
+
+        if self.modele is not None:
+            return
+
+        clear_gpu()
+
+        model = SentenceTransformer(
+            self.config.model_name,
+            device=self.config.device,
+            trust_remote_code=True,
+            model_kwargs={
+                "dtype": self.config.dtype,
+            },
+        )
+
+        model.max_seq_length = self.config.max_seq_length
+        model.eval()
+
+        object.__setattr__(self, "modele", model,)
+
+        sample = model.encode("-")
+        sample = sample.tolist()
+        object.__setattr__(self, "_full_dimension", len(sample),)
+
+        if (self.config.target_dimension is not None) and (self.config.target_dimension > self._full_dimension):
+                raise ValueError(
+                    f"target_dimension={self.config.target_dimension} "
+                    f"exceeds model dimension={self._full_dimension}"
+                )
 
     def _truncate_embedding(self, emb: list[float]) -> list[float]:
 
@@ -110,7 +122,7 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         return emb[:self.config.target_dimension]
 
     def _encode_single(self, text: str) -> list[float]:
-
+        self._require_model()
         with torch.inference_mode():
 
             emb = self.modele.encode(
@@ -129,7 +141,7 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         return emb
 
     def _encode_batch(self, texts: list[str]) -> list[list[float]]:
-
+        self._require_model()
         if not texts:
             return []
 
@@ -149,8 +161,6 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         if self.config.target_dimension is not None:
             embeddings = [self._truncate_embedding(emb) for emb in embeddings]
 
-        clear_gpu()
-
         return embeddings
 
     # =========================================================
@@ -161,7 +171,6 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         return self._get_embedding(text)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-
         uncached = [t for t in texts if t not in self._cache]
 
         if uncached:
@@ -181,7 +190,6 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         return self.embed_query(text)
 
     async def aembed_text(self, text: str, **kwargs) -> list[float]:
-
         loop = asyncio.get_event_loop()
 
         return await loop.run_in_executor(
@@ -194,7 +202,6 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         return await self._aget_embedding(text)
 
     async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
-
         loop = asyncio.get_event_loop()
 
         return await loop.run_in_executor(None, self.embed_documents, texts)
@@ -204,17 +211,13 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
     # =========================================================
 
     def _get_query_embedding(self, text: str) -> list[float]:
-
         return self.embed_query(text)
 
     def _get_text_embedding(self, text: str) -> list[float]:
-
         return self.embed_query(text)
 
     async def _aget_query_embedding(self, text: str) -> list[float]:
-
         loop = asyncio.get_event_loop()
-
         return await loop.run_in_executor(None, self.embed_query, text)
 
     # =========================================================
@@ -263,7 +266,6 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
     # =========================================================
 
     def embed_text_with_values(self, text: str) -> dict[str, str | list[float]]:
-
         emb = self.embed_query(text)
 
         return {
@@ -272,7 +274,6 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         }
 
     def register_texts_with_embeddings(self, texts: list[str], embeddings: list[list[float]],):
-
         if len(texts) != len(embeddings):
             raise ValueError(
                 "texts and embeddings must have identical length."
@@ -298,11 +299,16 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         prefix: str,
     ) -> str:
         return f"{prefix}-{self.name}"
+    
+    def _require_model(self):
+        if self.modele is None:
+            self.load()
 
     def unload(self):
-
-        del self.modele
+        if self.modele is None:
+            return
+        
+        object.__setattr__(self, "modele", None,)
 
         self.clear_cache()
-
         clear_gpu()

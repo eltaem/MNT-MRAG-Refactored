@@ -6,6 +6,7 @@ from src.embedder import Embedder
 from src.vector_store import BaseVectorStore, QdrantVectorStore
 from src.configs import EMBEDDER_CONFIGS, STORAGE_CONFIG, QAIndexerConfig, QdrantConfig, QdrantVectorStoreConfig
 from qdrant_client.models import PointStruct
+from src.utility import logger
 
 from src.utility import clear_gpu
 
@@ -102,10 +103,9 @@ class QAIndexer(BaseIndexer):
             )
 
 if __name__ == "__main__":
-    
 
     qa_items = QAParser.from_json(
-        STORAGE_CONFIG.qa_json
+        STORAGE_CONFIG.qa_json,
     )
 
     indexer_config = QAIndexerConfig()
@@ -120,7 +120,10 @@ if __name__ == "__main__":
 
     for embedder_config in EMBEDDER_CONFIGS:
 
-        print(f"\n== {embedder_config.model_name} ==")
+        logger.info(
+            "Processing embedder: %s",
+            embedder_config.model_name,
+        )
 
         embedder = Embedder(embedder_config)
 
@@ -131,15 +134,18 @@ if __name__ == "__main__":
         )
 
         embedding_path = STORAGE_CONFIG.qa_embedding_path(
-            embedder_config.model_name
+            embedder_config.model_name,
         )
 
         if embedding_path.exists():
 
-            print("Loading cached embeddings...")
+            logger.info(
+                "Loading cached embeddings from %s",
+                embedding_path,
+            )
 
             embeddings = QAEmbeddingParser.from_json(
-                embedding_path
+                embedding_path,
             )
 
             records = QARecord.from_embeddings(
@@ -149,7 +155,9 @@ if __name__ == "__main__":
 
         else:
 
-            print("Generating embeddings...")
+            logger.info(
+                "Generating embeddings...",
+            )
 
             records = indexer.embed_qa_items(
                 qa_items,
@@ -161,25 +169,43 @@ if __name__ == "__main__":
             )
 
             QAEmbeddingParser.to_json(
-                [r.embedding for r in records],
+                [record.embedding for record in records],
                 embedding_path,
             )
 
-        print("Indexing to vector store...")
+            logger.info(
+                "Cached embeddings written to %s",
+                embedding_path,
+            )
+
+        collection_name = embedder.collection_name("qa")
+
+        logger.info(
+            "Indexing collection '%s'...",
+            collection_name,
+        )
 
         indexer.index(
-            collection_name=embedder.collection_name("qa"),
+            collection_name=collection_name,
             records=records,
         )
 
-        print("Done.")
+        logger.info(
+            "Finished indexing '%s'.",
+            collection_name,
+        )
 
-        print("Cleaning up...")
+        logger.info(
+            "Unloading embedder '%s'...",
+            embedder_config.model_name,
+        )
 
         embedder.unload()
-        
+
         del embedder
         del indexer
         del records
 
         clear_gpu()
+
+    logger.info("QA indexing completed.")

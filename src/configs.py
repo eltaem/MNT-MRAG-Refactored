@@ -11,7 +11,6 @@ from pydantic import (
 
 from enum import StrEnum
 
-import torch
 from src.utility import LogLevel
 
 class TextMergeMode(StrEnum):

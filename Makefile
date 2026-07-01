@@ -1,6 +1,9 @@
-SCRIPTS := bash-scripts
+SCRIPTS := scripts
 
-.PHONY: kill load cload ollama users qdrant iqa is
+.PHONY: kill load cload ollama users qdrant iqa ciqa is parse
+
+kill:
+	bash $(SCRIPTS)/kill.sh
 
 ollama:
 	tmux attach -t ollama
@@ -11,3 +14,12 @@ qdrant:
 users:
 	nvidia-smi --query-compute-apps=pid --format=csv,noheader | \
 	xargs -I{} ps -o user= -p {} | sort | uniq
+
+parse:
+	python -m src.qa_parser
+
+iqa:
+	bash $(SCRIPTS)/qa-indexer.sh
+
+ciqa:
+	tmux attach -t index-qa

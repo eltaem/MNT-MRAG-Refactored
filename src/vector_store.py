@@ -4,19 +4,18 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from pydantic import BaseModel
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchAny,
+    MatchValue,
+    PointStruct,
+    VectorParams,
+)
 
-
-class VectorRecord(BaseModel):
-    """
-    Generic vector record stored in a vector database.
-    """
-
-    id: str
-
-    embedding: list[float]
-
-    payload: dict[str, Any]
-
+from src.configs import QdrantVectorStoreConfig
 
 class SearchResult(BaseModel):
     """
@@ -57,6 +56,14 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
+    def create_collection_if_not_exists(
+        self,
+        collection_name: str,
+        dimension: int,
+    ) -> None:
+        pass
+
+    @abstractmethod
     def list_collections(
         self,
     ) -> list[str]:
@@ -66,13 +73,9 @@ class BaseVectorStore(ABC):
     def upsert(
         self,
         collection_name: str,
-        records: list[VectorRecord],
-        batch_size: int = 256,
+        points: list[PointStruct],
     ) -> None:
-        """
-        Insert or update vectors.
-        """
-        pass
+        ...
 
     @abstractmethod
     def search(
@@ -100,39 +103,21 @@ class BaseVectorStore(ABC):
         """
         pass
 
-from __future__ import annotations
-
-from typing import Any
-
-from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    Distance,
-    FieldCondition,
-    Filter,
-    MatchAny,
-    MatchValue,
-    PointStruct,
-    VectorParams,
-)
-
 class QdrantVectorStore(BaseVectorStore):
 
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 6333,
-        path: str | None = None,
-        timeout: float = 120.0,
+        config: QdrantVectorStoreConfig,
     ):
-        if path is None:
+        if config.backend.path is None:
             self.client = QdrantClient(
-                host=host,
-                port=port,
-                timeout=timeout,
+                host=config.backend.host,
+                port=config.backend.port,
+                timeout=config.backend.timeout,
             )
         else:
             self.client = QdrantClient(
-                path=path,
+                path=config.backend.path,
             )
 
     # ------------------------------------------------------------------
@@ -177,6 +162,18 @@ class QdrantVectorStore(BaseVectorStore):
         }
 
         return collection_name in collections
+    
+    def create_collection_if_not_exists(
+        self,
+        collection_name: str,
+        dimension: int,
+    ) -> None:
+
+        if not self.collection_exists(collection_name):
+            self.create_collection(
+                collection_name,
+                dimension,
+            )
 
     def list_collections(
         self,
@@ -194,34 +191,13 @@ class QdrantVectorStore(BaseVectorStore):
     def upsert(
         self,
         collection_name: str,
-        records: list[VectorRecord],
-        batch_size: int = 256,
+        points: list[PointStruct],
     ) -> None:
-
-        for start in range(
-            0,
-            len(records),
-            batch_size,
-        ):
-
-            batch = records[
-                start:start + batch_size
-            ]
-
-            points = [
-                PointStruct(
-                    id=record.id,
-                    vector=record.embedding,
-                    payload=record.payload,
-                )
-                for record in batch
-            ]
-
-            self.client.upsert(
-                collection_name=collection_name,
-                points=points,
-                wait=True,
-            )
+        self.client.upsert(
+            collection_name=collection_name,
+            points=points,
+            wait=True,
+        )
 
     # ------------------------------------------------------------------
     # Search

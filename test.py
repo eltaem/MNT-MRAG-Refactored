@@ -386,11 +386,12 @@ async def test_apdfs_processor(path:Path):
 
 def test_dpmc(path: Path):
     from src.processors import PDFProcessor
+    from src.configs import EmbedderConfig, DoublePassMergingChunkerConfig
     from src.embedder import Embedder
-    from src.configs import DoublePassMergingChunkerConfig
     from src.chunker import DoublePassMergingChunker
     dpmc_conf = DoublePassMergingChunkerConfig()
-    embedder = Embedder(model_name="Octen/Octen-Embedding-8B", target_dimension=768)
+    emb_conf = EmbedderConfig(model_name="Octen/Octen-Embedding-8B", target_dimension=768)
+    embedder = Embedder(emb_conf)
     dpmc = DoublePassMergingChunker(dpmc_conf, embedder)
     nodes_path = Path("outputs/run-20260630_145750/debug/nodes.json")
     nodes = PDFProcessor.from_json(nodes_path)

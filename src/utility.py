@@ -1,5 +1,6 @@
 from __future__ import annotations
 from enum import IntEnum
+import gc
 import json
 import re
 import hashlib
@@ -11,9 +12,11 @@ from typing import TYPE_CHECKING
 import logging
 
 from pydantic import BaseModel
+import torch
 
 if TYPE_CHECKING:
     from src.nodes import BaseNode
+    from src.embedder import Embedder
 
 def clean_text(text: str) -> str:
     """
@@ -179,7 +182,7 @@ def configure_logging(level: LogLevel):
     )
     logger.setLevel(int(level))
 
-configure_logging(LogLevel.DEBUG)
+configure_logging(LogLevel.INFO)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -285,8 +288,13 @@ def load_json(
         )
     )
 
-def save_json(
-    obj: Any,
-    path: str | Path,
-):
-    ...
+def get_collection_name(
+    prefix: str,
+    embedder: Embedder,
+) -> str:
+    return f"{prefix}-{embedder}"
+
+def clear_gpu():
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()

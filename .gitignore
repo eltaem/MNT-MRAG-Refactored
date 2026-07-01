@@ -224,3 +224,5 @@ data/images/*
 .vscode
 outputs/*
 data/test
+.qdrant-initialized
+storage

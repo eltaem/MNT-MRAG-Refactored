@@ -8,6 +8,8 @@ from sentence_transformers import SentenceTransformer
 from langchain_core.embeddings import Embeddings
 from ragas.embeddings.base import BaseRagasEmbedding
 from llama_index.core.embeddings import BaseEmbedding
+from src.configs import EmbedderConfig
+from src.utility import clear_gpu
 
 class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
     """
@@ -28,15 +30,9 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
 
     modele: SentenceTransformer = Field(default=None,exclude=True)
 
-    name: str = Field(default="embedder")
+    config: EmbedderConfig = Field(default_factory=EmbedderConfig)
 
-    dimension: int | None = Field(default=None)
-
-    target_dimension: int | None = Field(default=None)
-
-    normalize_embeddings: bool = Field(default=True)
-
-    _batch_size: int = PrivateAttr()
+    _full_dimension: int = PrivateAttr()
 
     _cache: dict[str, list[float]] = PrivateAttr(default_factory=dict)
 
@@ -48,77 +44,59 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
 
     def __init__(
         self,
-        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-        device: str = "cuda",
-        normalize_embeddings: bool = True,
-        target_dimension: int | None = None,
-        max_seq_length: int = 512,
-        batch_size: int = 1,
-        dtype=torch.float16,
+        config: EmbedderConfig,
         **kwargs,
     ):
-        super().__init__(model_name=model_name, **kwargs)
+        super().__init__(model_name=config.model_name, **kwargs)
 
         model = SentenceTransformer(
-            model_name,
-            device=device,
+            config.model_name,
+            device=config.device,
             trust_remote_code=True,
             model_kwargs={
-                "dtype": dtype
+                "dtype": config.dtype
             }
         )
 
-        model.max_seq_length = max_seq_length
+        model.max_seq_length = config.max_seq_length
 
         model.eval()
 
+        object.__setattr__(self, "config", config)
+
+        # NOTE:
+        # intentionally named "modele" because
+        # using "model" conflicts with Pydantic internals.
         object.__setattr__(self, "modele", model)
-
-        object.__setattr__(self, "name", model_name)
-
-        object.__setattr__(self, "normalize_embeddings", normalize_embeddings)
-
-        object.__setattr__(self, "target_dimension", target_dimension)
-
-        object.__setattr__(self, "_batch_size", batch_size)
 
         object.__setattr__(self, "_cache", {})
 
         sample_emb = self._encode_single("-")
 
-        full_dim = len(sample_emb)
-
-        if target_dimension is not None:
-
-            if target_dimension > full_dim:
+        object.__setattr__(self, "_full_dimension", len(sample_emb),)
+        
+        if (config.target_dimension is not None) and (config.target_dimension > self._full_dimension):
                 raise ValueError(
-                    f"target_dimension={target_dimension} "
-                    f"exceeds model dimension={full_dim}"
+                    f"target_dimension={config.target_dimension} "
+                    f"exceeds model dimension={self._full_dimension}"
                 )
-
-            final_dim = target_dimension
-
-        else:
-
-            final_dim = full_dim
-
-        object.__setattr__(
-            self,
-            "dimension",
-            final_dim
-        )
-
-        gc.collect()
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        
+        clear_gpu()
 
     # =========================================================
     # STRING
     # =========================================================
-
-    def __str__(self) -> str:
-        return self.name.replace("/", "-").replace(" ", "_")
+    
+    @property
+    def name(self) -> str:
+        return self.config.model_name.replace("/", "-").replace(" ", "_")
+    
+    @property
+    def embedding_dimension(self) -> int:
+        return (
+            self.config.target_dimension
+            or self._full_dimension
+        )
 
     # =========================================================
     # INTERNAL HELPERS
@@ -126,10 +104,10 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
 
     def _truncate_embedding(self, emb: list[float]) -> list[float]:
 
-        if self.target_dimension is None:
+        if self.config.target_dimension is None:
             return emb
 
-        return emb[:self.target_dimension]
+        return emb[:self.config.target_dimension]
 
     def _encode_single(self, text: str) -> list[float]:
 
@@ -137,7 +115,7 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
 
             emb = self.modele.encode(
                 text,
-                normalize_embeddings=self.normalize_embeddings,
+                normalize_embeddings=self.config.normalize_embeddings,
                 convert_to_numpy=True,
                 convert_to_tensor=False,
                 show_progress_bar=False,
@@ -159,22 +137,19 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
 
             embeddings = self.modele.encode(
                 texts,
-                normalize_embeddings=self.normalize_embeddings,
+                normalize_embeddings=self.config.normalize_embeddings,
                 convert_to_numpy=True,
                 convert_to_tensor=False,
                 show_progress_bar=len(texts) > 32,
-                batch_size=self._batch_size,
+                batch_size=self.config.batch_size,
             )
 
         embeddings = embeddings.tolist()
 
-        if self.target_dimension is not None:
-            embeddings = [emb[:self.target_dimension] for emb in embeddings]
+        if self.config.target_dimension is not None:
+            embeddings = [self._truncate_embedding(emb) for emb in embeddings]
 
-        gc.collect()
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        clear_gpu()
 
         return embeddings
 
@@ -274,25 +249,20 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
 
         self._cache.clear()
 
-        gc.collect()
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
     @property
-    def cache_size(self):
+    def cache_size(self) -> int:
 
         return len(self._cache)
+    
+    @property
+    def has_cache(self):
+        return bool(self._cache)
 
     # =========================================================
     # UTILS
     # =========================================================
 
-    def get_dimension(self):
-
-        return self.dimension
-
-    def embed_text_with_values(self, text: str) -> dict:
+    def embed_text_with_values(self, text: str) -> dict[str, str | list[float]]:
 
         emb = self.embed_query(text)
 
@@ -303,7 +273,10 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
 
     def register_texts_with_embeddings(self, texts: list[str], embeddings: list[list[float]],):
 
-        assert len(texts) == len(embeddings)
+        if len(texts) != len(embeddings):
+            raise ValueError(
+                "texts and embeddings must have identical length."
+            )
 
         for text, emb in zip(texts, embeddings):
             self._cache[text] = emb
@@ -319,3 +292,17 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
 
         for text, emb in zip(uncached, embeddings):
             self._cache[text] = emb
+    
+    def collection_name(
+        self,
+        prefix: str,
+    ) -> str:
+        return f"{prefix}-{self.name}"
+
+    def unload(self):
+
+        del self.modele
+
+        self.clear_cache()
+
+        clear_gpu()

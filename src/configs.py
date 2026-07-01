@@ -1,6 +1,8 @@
+import os
 from pathlib import Path
 from typing import Literal
 
+from dotenv import load_dotenv
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -8,6 +10,8 @@ from pydantic import (
 )
 
 from enum import StrEnum
+
+import torch
 from src.utility import LogLevel
 
 class TextMergeMode(StrEnum):
@@ -448,13 +452,179 @@ class DoublePassMergingChunkerConfig(BaseChunkerConfig):
         le=1
     )
 
-class EmbedderConfig(BaseConfig):
-    pass
-class VectorStoreConfig(BaseConfig):
-    pass
+class QdrantConfig(BaseConfig):
+
+    host: str = "localhost"
+
+    port: int = 6333
+
+    path: str | None = None
+
+    api_key: str | None = None
+
+    https: bool = False
+
+    timeout: float = 120.0
+
+class BaseVectorStoreConfig(BaseConfig):
+
+    enabled: bool = True
+
+    recreate_if_exists: bool = False
+
+class QdrantVectorStoreConfig(BaseVectorStoreConfig):
+
+    backend: QdrantConfig = Field(
+        default_factory=QdrantConfig
+    )
 
 class PDFProcessorConfig(BaseConfig):
     pdf_concurrency: int = Field(
         default=2,
         gt=0,
     )
+
+class BaseIndexerConfig(BaseConfig):
+
+    enabled: bool = True
+
+    batch_size: int = Field(
+        default=8,
+        gt=0,
+    )
+
+class QAIndexerConfig(
+    BaseIndexerConfig
+):
+    """
+    Configuration for indexing QA datasets.
+    """
+
+    pass
+
+class EmbedderConfig(BaseConfig):
+
+    model_config = ConfigDict(
+        frozen=True,
+        extra="forbid",
+    )
+
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+
+    device: str = "cuda"
+
+    normalize_embeddings: bool = True
+
+    target_dimension: int | None = 768
+
+    max_seq_length: int = 512
+
+    batch_size: int = 8
+
+    dtype: str = "float16"
+
+EMBEDDER_CONFIGS: list[EmbedderConfig] = [
+    EmbedderConfig(
+        model_name="nvidia/llama-embed-nemotron-8b",
+        target_dimension=768,
+    ),
+    EmbedderConfig(
+        model_name="Octen/Octen-Embedding-8B",
+        target_dimension=768,
+    ),
+    EmbedderConfig(
+        model_name="codefuse-ai/F2LLM-v2-8B",
+        target_dimension=768,
+    ),
+]
+
+class StorageConfig(BaseConfig):
+    """
+    Centralized filesystem layout.
+
+    Only PROJECT_ROOT is loaded from .env.
+    Everything else is derived from it.
+    """
+
+    project_root: Path = Field()
+
+    # =========================================================
+    # ROOT
+    # =========================================================
+
+    @property
+    def data_dir(self) -> Path:
+        return self.project_root / "data"
+
+    # =========================================================
+    # QA
+    # =========================================================
+
+    @property
+    def qa_dir(self) -> Path:
+        return self.data_dir / "QA"
+
+    @property
+    def qa_csv(self) -> Path:
+        return self.qa_dir / "QA_dataset.csv"
+
+    @property
+    def qa_json(self) -> Path:
+        return self.qa_dir / "QA_dataset.json"
+
+    @property
+    def qa_raw_json(self) -> Path:
+        return self.qa_dir / "indonutriqa.json"
+
+    # =========================================================
+    # QA Embeddings
+    # =========================================================
+
+    @property
+    def qa_embedding_dir(self) -> Path:
+        return self.qa_dir / "embeddings"
+
+    def qa_embedding_path(
+        self,
+        embedder_name: str,
+    ) -> Path:
+        return (
+            self.qa_embedding_dir
+            / f"{self.sanitize_embedder_name(embedder_name)}.json"
+        )
+
+    # =========================================================
+    # Source Documents
+    # =========================================================
+
+    @property
+    def source_dir(self) -> Path:
+        return self.data_dir / "PDFs"
+
+    # =========================================================
+    # Helpers
+    # =========================================================
+
+    def ensure_directories(self) -> None:
+        """
+        Create required directories if missing.
+        """
+
+        self.qa_embedding_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+    
+    @staticmethod
+    def sanitize_embedder_name(
+        embedder_name: str,
+    ) -> str:
+        return (
+            embedder_name
+            .replace("/", "-")
+            .replace("\\", "-")
+            .replace(" ", "_")
+        )
+
+load_dotenv()
+STORAGE_CONFIG = StorageConfig(project_root=os.getenv("PROJECT_ROOT"))

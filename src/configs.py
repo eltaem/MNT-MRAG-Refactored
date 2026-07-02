@@ -5,9 +5,10 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    computed_field,
 )
 from enum import StrEnum
-from src.utility import LogLevel
+from src.utility import LogLevel, sanitize_name
 
 class TextMergeMode(StrEnum):
     PAGE = "page"
@@ -414,6 +415,10 @@ class BaseChunkerConfig(BaseConfig):
 
 class DoublePassMergingChunkerConfig(BaseChunkerConfig):
 
+    name:str = Field(
+        default="dpmc"
+    )
+    
     initial_threshold: float = Field(
         default=0.4,
         ge=0,
@@ -503,6 +508,11 @@ class EmbedderConfig(BaseConfig):
 
     dtype: str = "float16"
 
+    @computed_field
+    @property
+    def name(self) -> str:
+        return sanitize_name(self.model_name)
+
 EMBEDDER_CONFIGS: list[EmbedderConfig] = [
     EmbedderConfig(
         model_name="nvidia/llama-embed-nemotron-8b",
@@ -570,7 +580,7 @@ class StorageConfig(BaseConfig):
     ) -> Path:
         return (
             self.qa_embedding_dir
-            / f"{self.sanitize_embedder_name(embedder_name)}.json"
+            / f"{embedder_name}.json"
         )
 
     # =========================================================
@@ -612,23 +622,45 @@ class StorageConfig(BaseConfig):
         return self.data_dir / "chunks"
 
 
-    def chunk_embedder_dir(
+    def chunk_method_dir(
         self,
-        embedder_name: str,
+        method_name: str,
     ) -> Path:
         return (
             self.chunk_dir
-            / self.sanitize_embedder_name(embedder_name)
+            / method_name
+        )
+
+
+    def chunk_embedder_dir(
+        self,
+        method_name: str,
+        embedder_name: str,
+    ) -> Path:
+        return (
+            self.chunk_method_dir(method_name)
+            / embedder_name
         )
 
 
     def chunk_path(
         self,
+        method_name: str,
         document_name: str,
-        embedder_name: str,
+        embedder_name: str | None = None,
     ) -> Path:
+
+        if embedder_name is None:
+            return (
+                self.chunk_method_dir(method_name)
+                / f"{document_name}.json"
+            )
+
         return (
-            self.chunk_embedder_dir(embedder_name)
+            self.chunk_embedder_dir(
+                method_name,
+                embedder_name,
+            )
             / f"{document_name}.json"
         )
 

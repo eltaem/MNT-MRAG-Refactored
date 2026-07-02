@@ -62,7 +62,7 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
     
     @property
     def name(self) -> str:
-        return self.config.model_name.replace("/", "-").replace(" ", "_")
+        return self.config.name
     
     @property
     def embedding_dimension(self):

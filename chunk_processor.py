@@ -49,6 +49,7 @@ async def process_chunks():
             document_name = parsed_path.stem
 
             output_path = STORAGE_CONFIG.chunk_path(
+                method_name=chunker.name,
                 document_name=document_name,
                 embedder_name=embedder.name,
             )

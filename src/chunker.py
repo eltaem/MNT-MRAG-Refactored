@@ -102,6 +102,10 @@ class BaseChunker(ABC):
         config: BaseChunkerConfig,
     ):
         self.config = config
+    
+    @property
+    def name(self) -> str:
+        return self.config.name
 
     @abstractmethod
     def chunk(
@@ -150,6 +154,10 @@ class BaseSemanticChunker(ABC):
     ):
         self.config = config
         self.embedder = embedder
+    
+    @property
+    def name(self) -> str:
+        return self.config.name
 
     @abstractmethod
     def chunk(

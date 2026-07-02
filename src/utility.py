@@ -318,3 +318,11 @@ def clear_gpu():
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+def sanitize_name(value: str) -> str:
+    return (
+        value
+        .replace("/", "-")
+        .replace("\\", "-")
+        .replace(" ", "_")
+    )

@@ -1,5 +1,4 @@
 import asyncio
-import gc
 import torch
 
 from pydantic import Field, PrivateAttr
@@ -293,12 +292,6 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
 
         for text, emb in zip(uncached, embeddings):
             self._cache[text] = emb
-    
-    def collection_name(
-        self,
-        prefix: str,
-    ) -> str:
-        return f"{prefix}-{self.name}"
     
     def _require_model(self):
         if self.modele is None:

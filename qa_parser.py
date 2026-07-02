@@ -1,14 +1,11 @@
-import json
-from typing import Any
-import uuid
-
+from __future__ import annotations
 import pandas as pd
-import os
 from dotenv import load_dotenv
 from pathlib import Path
 from pydantic import BaseModel, computed_field
 import pandas as pd
 from src.utility import (
+    deterministic_uuid,
     load_json,
     load_models,
     save_models,
@@ -16,34 +13,11 @@ from src.utility import (
 
 load_dotenv()
 
-def generate_qa_id(
-    qa: "QAItem",
-) -> str:
-    """
-    Generate a deterministic UUID from QA content.
-
-    The same question-answer pair will always produce
-    the same UUID across runs.
-    """
-
-    payload: dict[str, Any] = {
+def generate_qa_id(qa: QAItem) -> str:
+    return deterministic_uuid({
         "question": qa.question,
         "answer": qa.answer,
-    }
-
-    payload_json = json.dumps(
-        payload,
-        sort_keys=True,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-
-    return str(
-        uuid.uuid5(
-            uuid.NAMESPACE_DNS,
-            payload_json,
-        )
-    )
+    })
 
 class QAItem(BaseModel):
 
@@ -258,60 +232,54 @@ class QAParser:
 
         return path
 
-def main():
+def parse_qa():
     from src.configs import STORAGE_CONFIG
 
-    raw_json_path = STORAGE_CONFIG.qa_raw_json
-
-    parsed_json_path = STORAGE_CONFIG.qa_json
-
-    parsed_csv_path = STORAGE_CONFIG.qa_csv
-
     qa_items = QAParser.from_raw_json(
-        raw_json_path
+        STORAGE_CONFIG.qa_raw_json
     )
 
     print(
         f"Total QA: {len(qa_items)}"
     )
 
-    if parsed_json_path.exists():
+    if STORAGE_CONFIG.qa_json.exists():
         print(
             "Parsed QA via JSON already exists at",
-            parsed_json_path.relative_to(
+            STORAGE_CONFIG.qa_json.relative_to(
                 Path.cwd()
             ),
         )
     else:
         QAParser.to_json(
             qa_items,
-            parsed_json_path,
+            STORAGE_CONFIG.qa_json,
         )
         print(
             "Saved parsed QA via JSON to",
-            parsed_json_path.relative_to(
+            STORAGE_CONFIG.qa_json.relative_to(
                 Path.cwd()
             ),
         )
     
-    if parsed_csv_path.exists():
+    if STORAGE_CONFIG.qa_csv.exists():
         print(
             "Parsed QA via csv already exists at",
-            parsed_csv_path.relative_to(
+            STORAGE_CONFIG.qa_csv.relative_to(
                 Path.cwd()
             )
         )
     else:
         QAParser.to_csv(
                 qa_items,
-                parsed_csv_path,
+                STORAGE_CONFIG.qa_csv,
             )
         print(
             "Saved parsed QA via csv to",
-            parsed_csv_path.relative_to(
+            STORAGE_CONFIG.qa_csv.relative_to(
                 Path.cwd()
             ),
         )
 
 if __name__ == "__main__":
-    main()
+    parse_qa()

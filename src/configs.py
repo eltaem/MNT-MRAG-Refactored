@@ -1,36 +1,17 @@
 import os
 from pathlib import Path
-from typing import Literal
-
 from dotenv import load_dotenv
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
 )
-
 from enum import StrEnum
-
 from src.utility import LogLevel
 
 class TextMergeMode(StrEnum):
     PAGE = "page"
     DOCUMENT = "document"
-
-_PENDAHULUAN_PATTERNS: list[str] = [
-    "BAB I\nPENDAHULUAN\n",
-    "BAB 1\nPENDAHULUAN\n",
-    "BABI\nPENDAHULUAN\n",
-    "BAB I. PENDAHULUAN\n",
-    "BAB 1. PENDAHULUAN\n",
-    "BAB I\n",
-    "BAB 1\nPENDAHULUAN",
-    "BAB 1\n",
-    "PENDAHULUAN\n",
-    "A. IDENTITAS PASIEN\n",
-    "SKRINING GIZI\n",
-    "DATA DASAR\n",
-]
 
 DEFAULT_FRONT_MATTER_PATTERNS: list[str] = [
     "BAB I PENDAHULUAN",
@@ -599,17 +580,74 @@ class StorageConfig(BaseConfig):
     @property
     def source_dir(self) -> Path:
         return self.data_dir / "PDFs"
+    
+    @property
+    def test_dir(self) -> Path:
+        return self.data_dir / "test"
+    
+    # =========================================================
+    # Parsed Documents
+    # =========================================================
+
+    @property
+    def parsed_dir(self) -> Path:
+        return self.data_dir / "parsed"
+
+
+    def parsed_document_path(
+        self,
+        document_name: str,
+    ) -> Path:
+        return (
+            self.parsed_dir
+            / f"{document_name}.json"
+        )
+    
+    # =========================================================
+    # Chunk Records
+    # =========================================================
+
+    @property
+    def chunk_dir(self) -> Path:
+        return self.data_dir / "chunks"
+
+
+    def chunk_embedder_dir(
+        self,
+        embedder_name: str,
+    ) -> Path:
+        return (
+            self.chunk_dir
+            / self.sanitize_embedder_name(embedder_name)
+        )
+
+
+    def chunk_path(
+        self,
+        document_name: str,
+        embedder_name: str,
+    ) -> Path:
+        return (
+            self.chunk_embedder_dir(embedder_name)
+            / f"{document_name}.json"
+        )
 
     # =========================================================
     # Helpers
     # =========================================================
 
     def ensure_directories(self) -> None:
-        """
-        Create required directories if missing.
-        """
-
         self.qa_embedding_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        self.parsed_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        self.chunk_dir.mkdir(
             parents=True,
             exist_ok=True,
         )

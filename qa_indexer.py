@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from src.indexer import BaseIndexer
-from src.qa_parser import QAEmbedding, QAEmbeddingParser, QAItem, QAParser, QARecord
+from qa_parser import QAEmbedding, QAEmbeddingParser, QAItem, QAParser, QARecord
 from src.embedder import Embedder
 from src.vector_store import BaseVectorStore, QdrantVectorStore
 from src.configs import EMBEDDER_CONFIGS, STORAGE_CONFIG, QAIndexerConfig, QdrantConfig, QdrantVectorStoreConfig
 from qdrant_client.models import PointStruct
-from src.utility import logger
+from src.utility import logger, generate_collection_name
 
 from src.utility import clear_gpu
 
@@ -102,8 +102,7 @@ class QAIndexer(BaseIndexer):
                 points=points,
             )
 
-if __name__ == "__main__":
-
+def index_qa():
     qa_items = QAParser.from_json(
         STORAGE_CONFIG.qa_json,
     )
@@ -178,7 +177,7 @@ if __name__ == "__main__":
                 embedding_path,
             )
 
-        collection_name = embedder.collection_name("qa")
+        collection_name = generate_collection_name("qa", embedder)
 
         logger.info(
             "Indexing collection '%s'...",
@@ -209,3 +208,6 @@ if __name__ == "__main__":
         clear_gpu()
 
     logger.info("QA indexing completed.")
+
+if __name__ == "__main__":
+    index_qa()

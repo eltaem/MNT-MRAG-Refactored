@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from enum import StrEnum
 from pathlib import Path
-from typing import Any, ClassVar, Literal
-
-import hashlib
-import json
-import uuid
+from typing import Any, ClassVar
 
 from pydantic import (
     BaseModel,
@@ -16,36 +11,20 @@ from pydantic import (
     computed_field,
 )
 
-from src.utility import BBox
+from src.utility import BBox, deterministic_uuid
 
 NODE_REGISTRY: dict[str, type[BaseNode]] = {}
 
 def register_node(cls: type[BaseNode]):
-    NODE_REGISTRY[cls.node_type] = cls
+    NODE_REGISTRY[cls.NODE_TYPE] = cls
     return cls
 
-def generate_node_id(
-    node: "BaseNode",
-) -> str:
-    """
-    Generate a deterministic UUID representing the identity
-    of an extracted node inside a document.
+def generate_node_id(node: BaseNode) -> str:
 
-    Identity fields:
-    - document_id
-    - page_number
-    - bbox (rounded)
-    - node_type
-    - image_hash (ImageNode only)
-    """
-
-    payload: dict[str, Any] = {
+    payload = {
         "document_id": node.document_id,
         "page_number": node.page_number,
-        "bbox": tuple(
-            round(v, 2)
-            for v in node.bbox
-        ),
+        "bbox": tuple(round(v, 2) for v in node.bbox),
         "node_type": node.__class__.__name__,
     }
 
@@ -58,24 +37,11 @@ def generate_node_id(
     if image_hash is not None:
         payload["image_hash"] = image_hash
 
-    payload_json = json.dumps(
-        payload,
-        sort_keys=True,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-
-    return str(
-        uuid.uuid5(
-            uuid.NAMESPACE_DNS,
-            payload_json,
-        )
-    )
-
+    return deterministic_uuid(payload)
 
 class BaseNode(BaseModel, ABC):
 
-    node_type: ClassVar[str]
+    NODE_TYPE: ClassVar[str]
 
     model_config = ConfigDict(
         extra="forbid",
@@ -100,10 +66,10 @@ class BaseNode(BaseModel, ABC):
     def node_id(self) -> str:
         return generate_node_id(self)
     
-    @computed_field(alias="node_type")
+    @computed_field
     @property
-    def node_type_name(self) -> str:
-        return self.node_type
+    def node_type(self) -> str:
+        return self.NODE_TYPE
 
     @property
     def x0(self) -> float:
@@ -155,7 +121,7 @@ class BaseNode(BaseModel, ABC):
 @register_node
 class TextNode(BaseNode):
 
-    node_type = "text"
+    NODE_TYPE = "text"
 
     text: str
 
@@ -166,7 +132,7 @@ class TextNode(BaseNode):
 @register_node
 class ImageNode(BaseNode):
 
-    node_type = "image"
+    NODE_TYPE = "image"
 
     image_path: Path
 
@@ -195,7 +161,7 @@ class ImageNode(BaseNode):
 @register_node
 class TableNode(BaseNode):
 
-    node_type = "table"
+    NODE_TYPE = "table"
 
     rows: list[list[Any]]
 

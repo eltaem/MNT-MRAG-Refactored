@@ -234,7 +234,8 @@ def test_pdfs_extractor():
         PDFExtractor.save_json(nodes, pdf_debug_dir / "many_documents" / f"document_{i}.json")
 
 def test_pdf_processor(path:Path):
-    from src.processors import PDFProcessor, RemoveBeforePatternProcessor, TextMerger
+    from src.processors import RemoveBeforePatternProcessor, TextMerger
+    from pdf_processor import PDFProcessor
     from src.configs import (
         PDFExtractorConfig,
         RemoveBeforePatternProcessorConfig,
@@ -273,7 +274,8 @@ def test_pdf_processor(path:Path):
     )
 
 def test_pdfs_processor(path:Path):
-    from src.processors import PDFProcessor, RemoveBeforePatternProcessor, TextMerger
+    from src.processors import RemoveBeforePatternProcessor, TextMerger
+    from pdf_processor import PDFProcessor
     from src.configs import (
         PDFExtractorConfig,
         PDFProcessorConfig,
@@ -313,7 +315,8 @@ def test_pdfs_processor(path:Path):
     )
 
 async def test_apdfs_processor(path:Path):
-    from src.processors import PDFProcessor, RemoveBeforePatternProcessor, TextMerger
+    from src.processors import RemoveBeforePatternProcessor, TextMerger
+    from pdf_processor import PDFProcessor
     from src.configs import (
         PDFExtractorConfig,
         PDFProcessorConfig,
@@ -365,16 +368,16 @@ async def test_apdfs_processor(path:Path):
                 merger_config,
             ),
         ],
-        # enrichers= [
-        #     ImageCaptionEnricher(
-        #         image_enricher_config,
-        #         image_captioning_model
-        #     ),
-        #     TableCaptionEnricher(
-        #         table_enricher_config,
-        #         table_captioning_model
-        #     )
-        # ]
+        enrichers= [
+            ImageCaptionEnricher(
+                image_enricher_config,
+                image_captioning_model
+            ),
+            TableCaptionEnricher(
+                table_enricher_config,
+                table_captioning_model
+            )
+        ]
     )
     output_path = path / "nodes.json"
     nodes = await processor.aprocess_pdfs_dir("data/test")
@@ -385,7 +388,7 @@ async def test_apdfs_processor(path:Path):
     )
 
 def test_dpmc(path: Path):
-    from src.processors import PDFProcessor
+    from pdf_processor import PDFProcessor
     from src.configs import EmbedderConfig, DoublePassMergingChunkerConfig
     from src.embedder import Embedder
     from src.chunker import DoublePassMergingChunker

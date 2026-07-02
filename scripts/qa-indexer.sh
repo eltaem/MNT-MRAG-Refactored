@@ -5,7 +5,7 @@ RUNNER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SESSION="index-qa"
 
-INDEXER_MODULE="${1:-src.qa_indexer}"
+INDEXER_SCRIPT="${1:-qa_indexer.py}"
 
 # ─── Start dependencies ───────────────────────────────────────────────────────
 bash "$SCRIPT_DIR/qdrant.sh"
@@ -21,7 +21,7 @@ fi
 echo "Starting QA Indexer in tmux session: $SESSION"
 
 tmux new-session -d -s "$SESSION" \
-    "cd '$RUNNER_DIR' && python -m $INDEXER_MODULE; read"
+    "cd '$RUNNER_DIR' && python '$INDEXER_SCRIPT'; read"
 
 echo ""
 echo "All sessions launched."
@@ -30,3 +30,5 @@ echo "Useful commands:"
 echo "  tmux ls"
 echo "  tmux attach -t qdrant"
 echo "  tmux attach -t $SESSION"
+echo "  make qdrant"
+echo "  make ciqa"

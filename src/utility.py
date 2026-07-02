@@ -6,7 +6,7 @@ import re
 import hashlib
 from pathlib import Path
 import uuid
-from typing import Any, TypeAlias, TypeVar
+from typing import Any, Protocol, TypeAlias, TypeVar
 import fitz
 from typing import TYPE_CHECKING
 import logging
@@ -16,7 +16,6 @@ import torch
 
 if TYPE_CHECKING:
     from src.nodes import BaseNode
-    from src.embedder import Embedder
 
 def clean_text(text: str) -> str:
     """
@@ -31,6 +30,28 @@ def clean_text(text: str) -> str:
     cleaned_text = re.sub(r"\s+", " ", text).strip()
     return cleaned_text
 
+def deterministic_uuid(value: Any) -> str:
+    """
+    Generate deterministic UUID5 from any JSON-serializable value.
+    """
+
+    if isinstance(value, str):
+        payload = value
+    else:
+        payload = json.dumps(
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+    return str(
+        uuid.uuid5(
+            uuid.NAMESPACE_DNS,
+            payload,
+        )
+    )
+
 def generate_document_id(file_path: str | Path,) -> str:
     file_path = Path(file_path)
     sha256 = hashlib.sha256()
@@ -42,14 +63,7 @@ def generate_document_id(file_path: str | Path,) -> str:
         ):
             sha256.update(chunk)
 
-    content_hash = sha256.hexdigest()
-
-    return str(
-        uuid.uuid5(
-            uuid.NAMESPACE_DNS,
-            content_hash,
-        )
-    )
+    return deterministic_uuid(sha256.hexdigest())
 
 BBox: TypeAlias = tuple[
     float,
@@ -126,9 +140,6 @@ def collect_pdfs(directory: str | Path) -> list[Path]:
         raise FileNotFoundError(f"Directory not found: {directory}")
 
     return sorted(directory.glob("*.pdf"), key=lambda p: p.name)
-
-from typing import Any
-
 
 def serialize_table(table: Any) -> str:
     if isinstance(table, str):
@@ -288,11 +299,20 @@ def load_json(
         )
     )
 
-def get_collection_name(
+class HasName(Protocol):
+    @property
+    def name(self) -> str: ...
+
+def generate_collection_name(
     prefix: str,
-    embedder: Embedder,
+    *components: HasName,
 ) -> str:
-    return f"{prefix}-{embedder}"
+    parts = [prefix]
+
+    for component in components:
+        parts.append(component.name)
+
+    return "-".join(parts)
 
 def clear_gpu():
     gc.collect()

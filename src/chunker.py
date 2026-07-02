@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 import asyncio
-import json
 from pathlib import Path
-import uuid
 
 from llama_index.core import Document
 from pydantic import BaseModel, Field
@@ -11,7 +9,17 @@ from llama_index.core.node_parser import SemanticDoubleMergingSplitterNodeParser
 from src.configs import BaseChunkerConfig, DoublePassMergingChunkerConfig
 from src.embedder import Embedder
 from src.nodes import BaseNode
-from src.utility import load_models, logger, save_models
+from src.utility import deterministic_uuid, load_models, logger, save_models
+
+def generate_chunk_id(
+    node_id: str,
+    chunk_index: int,
+) -> str:
+
+    return deterministic_uuid({
+        "node_id": node_id,
+        "chunk_index": chunk_index,
+    })
 
 class Chunk(BaseModel):
     """
@@ -32,6 +40,60 @@ class Chunk(BaseModel):
         default_factory=dict,
     )
 
+class ChunkEmbedding(BaseModel):
+
+    chunk_id: str
+
+    embedding: list[float]
+
+class ChunkRecord(BaseModel):
+
+    chunk: Chunk
+
+    embedding: ChunkEmbedding
+
+    @property
+    def chunk_id(self):
+        return self.chunk.chunk_id
+
+    @property
+    def text(self):
+        return self.chunk.text
+
+    @property
+    def document_id(self):
+        return self.chunk.document_id
+    
+    @classmethod
+    def from_embeddings(
+        cls,
+        chunks: list[Chunk],
+        embeddings: list[ChunkEmbedding],
+    ) -> list["ChunkRecord"]:
+
+        embedding_map = {
+            emb.chunk_id: emb
+            for emb in embeddings
+        }
+
+        missing = [
+            chunk.chunk_id
+            for chunk in chunks
+            if chunk.chunk_id not in embedding_map
+        ]
+
+        if missing:
+            raise ValueError(
+                f"Missing embeddings for {len(missing)} chunks."
+            )
+
+        return [
+            cls(
+                chunk=chunk,
+                embedding=embedding_map[chunk.chunk_id],
+            )
+            for chunk in chunks
+        ]
 
 class BaseChunker(ABC):
 
@@ -79,8 +141,56 @@ class BaseChunker(ABC):
             Chunk,
         )
 
+class BaseSemanticChunker(ABC):
+
+    def __init__(
+        self,
+        config: BaseChunkerConfig,
+        embedder: Embedder,
+    ):
+        self.config = config
+        self.embedder = embedder
+
+    @abstractmethod
+    def chunk(
+        self,
+        nodes: list[BaseNode],
+    ) -> list[ChunkRecord]:
+        ...
+
+    async def achunk(
+        self,
+        nodes: list[BaseNode],
+    ) -> list[ChunkRecord]:
+
+        return await asyncio.to_thread(
+            self.chunk,
+            nodes,
+        )
+
+    @staticmethod
+    def to_json(
+        records: list[ChunkRecord],
+        path: str | Path,
+    ) -> Path:
+
+        return save_models(
+            records,
+            path,
+        )
+
+    @staticmethod
+    def from_json(
+        path: str | Path,
+    ) -> list[ChunkRecord]:
+
+        return load_models(
+            path,
+            ChunkRecord,
+        )
+
 class DoublePassMergingChunker(
-    BaseChunker,
+    BaseSemanticChunker,
 ):
 
     def __init__(
@@ -88,10 +198,7 @@ class DoublePassMergingChunker(
         config: DoublePassMergingChunkerConfig,
         embedder: Embedder,
     ):
-        super().__init__(config)
-
-        self.config = config
-        self.embedder = embedder
+        super().__init__(config, embedder)
 
         self._splitter = (
             SemanticDoubleMergingSplitterNodeParser(
@@ -114,7 +221,7 @@ class DoublePassMergingChunker(
     def chunk(
         self,
         nodes: list[BaseNode],
-    ) -> list[Chunk]:
+    ) -> list[ChunkRecord]:
 
         logger.info(
             "Chunking %d nodes using %s...",
@@ -122,7 +229,7 @@ class DoublePassMergingChunker(
             self.__class__.__name__,
         )
 
-        chunks: list[Chunk] = []
+        records: list[ChunkRecord] = []
 
         for node in nodes:
 
@@ -157,24 +264,30 @@ class DoublePassMergingChunker(
                 llama_nodes
             ):
 
-                chunk_id = str(
-                    uuid.uuid5(
-                        uuid.NAMESPACE_DNS,
-                        f"{node.node_id}::{idx}",
-                    )
+                chunk_id = generate_chunk_id(node.node_id, idx)
+
+                chunk = Chunk(
+                    chunk_id=chunk_id,
+                    document_id=node.document_id,
+                    node_type=node.node_type,
+                    text=llama_node.text,
+                    metadata={
+                        "page_number": node.page_number,
+                        "chunk_index": idx,
+                    },
                 )
 
-                chunks.append(
-                    Chunk(
-                        chunk_id=chunk_id,
-                        document_id=node.document_id,
-                        node_id=node.node_id,
-                        node_type=node.node_type,
-                        text=llama_node.text,
-                        metadata={
-                            "page_number": node.page_number,
-                            "chunk_index": idx,
-                        },
+                embedding = ChunkEmbedding(
+                    chunk_id=chunk.chunk_id,
+                    embedding=self.embedder.embed_query(
+                        chunk.text,
+                    ),
+                )
+
+                records.append(
+                    ChunkRecord(
+                        chunk=chunk,
+                        embedding=embedding,
                     )
                 )
 
@@ -185,9 +298,9 @@ class DoublePassMergingChunker(
                 )
 
         logger.info(
-            "Finished chunking: %d nodes -> %d chunks.",
+            "Finished semantic chunking: %d nodes -> %d chunks.",
             len(nodes),
-            len(chunks),
+            len(records),
         )
 
-        return chunks
+        return records

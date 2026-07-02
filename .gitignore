@@ -221,6 +221,8 @@ __marimo__/
 data/PDFs/*
 data/QA/*
 data/images/*
+data/parsed/*
+data/chunks/*
 .vscode
 outputs/*
 data/test

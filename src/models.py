@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Self, Any
+from typing import Any
 import json
 import logging
 import numpy as np

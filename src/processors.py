@@ -2,22 +2,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import asyncio
-import json
-from pathlib import Path
-
-from src.enrichers import BaseNodeEnricher
-from src.extractors import PDFExtractor
-from src.nodes import NODE_REGISTRY, BaseNode
+from src.nodes import BaseNode
 from src.configs import (
     BaseNodeProcessorConfig,
-    PDFProcessorConfig,
     RemoveBeforePatternProcessorConfig,
     TextMergerConfig,
     TextMergeMode
 )
 from src.nodes import TextNode
 import re
-from src.utility import collect_pdfs, load_json, save_models
 
 class BaseNodeProcessor(ABC):
     """
@@ -223,161 +216,3 @@ class TextMerger(BaseNodeProcessor):
             text=text,
             metadata=metadata,
         )
-
-class PDFProcessor:
-    """
-    High-level PDF processing orchestrator.
-
-        PDF
-         ↓
-        PDFExtractor
-         ↓
-        list[BaseNode]
-         ↓
-        Processors
-         ↓
-        Enrichers
-    """
-
-    def __init__(
-        self,
-        config:PDFProcessorConfig,
-        extractor: PDFExtractor,
-        processors: list[BaseNodeProcessor] | None = None,
-        enrichers: list[BaseNodeEnricher] | None = None,
-        ):
-        
-        self.config = config
-        self.extractor = extractor
-
-        self.processors = (
-            processors
-            if processors is not None
-            else []
-        )
-
-        self.enrichers = (
-            enrichers
-            if enrichers is not None
-            else []
-        )
-
-    def process_pdf(self, path: str | Path,) -> list[BaseNode]:
-
-        nodes = self.extractor.extract(path)
-
-        for processor in self.processors:
-            nodes = processor.process(nodes)
-
-        for enricher in self.enrichers:
-            nodes = enricher.enrich(nodes)
-
-        return nodes
-
-    def process_pdfs(self, paths: list[str | Path],) -> list[BaseNode]:
-
-        nodes: list[BaseNode] = []
-
-        for path in paths:
-            nodes.extend(self.process_pdf(path))
-
-        return nodes
-    
-    def process_pdfs_dir(self, directory: str | Path,) -> list[BaseNode]:
-
-        pdf_paths = collect_pdfs(directory)
-
-        return self.process_pdfs(pdf_paths)
-
-    async def aprocess_pdf(self, path: str | Path,) -> list[BaseNode]:
-
-        nodes = self.extractor.extract(path)
-
-        for processor in (
-            self.processors
-        ):
-            nodes = await processor.aprocess(nodes)
-
-        for enricher in self.enrichers:
-            nodes = await enricher.aenrich(nodes)
-
-        return nodes
-
-    async def aprocess_pdfs(
-        self,
-        paths: list[str | Path]
-    ) -> list[BaseNode]:
-        """
-        Process multiple PDFs with controlled concurrency.
-
-        batch_size controls how many PDFs are processed concurrently
-        to avoid LLM / GPU overload.
-        """
-
-        if not paths:
-            return []
-
-        semaphore = asyncio.Semaphore(self.config.pdf_concurrency)
-
-        async def run_one(path: str | Path) -> list[BaseNode]:
-            async with semaphore:
-                return await self.aprocess_pdf(path)
-
-        # run with controlled concurrency
-        tasks = [run_one(p) for p in paths]
-
-        results = await asyncio.gather(*tasks)
-
-        # flatten
-        nodes: list[BaseNode] = []
-        for batch in results:
-            nodes.extend(batch)
-
-        return nodes
-    
-    async def aprocess_pdfs_dir(
-        self,
-        directory: str | Path,
-    ) -> list[BaseNode]:
-
-        pdf_paths = collect_pdfs(
-            directory
-        )
-
-        return await self.aprocess_pdfs(
-            pdf_paths
-        )
-
-    @staticmethod
-    def to_json(
-        nodes: list[BaseNode],
-        path: str | Path,
-    ) -> Path:
-
-        return save_models(
-            nodes,
-            path,
-        )
-    
-    @staticmethod
-    def from_json(
-        path: str | Path,
-    ) -> list[BaseNode]:
-
-        payload = load_json(path)
-
-        nodes: list[BaseNode] = []
-
-        for item in payload:
-
-            node_type = item.pop(
-                "node_type"
-            )
-            item.pop("node_id", None)
-
-            node_cls = NODE_REGISTRY[node_type]
-
-            node = node_cls.model_validate(item)
-            nodes.append(node)
-
-        return nodes

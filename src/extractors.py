@@ -23,6 +23,7 @@ from src.utility import (
     image_xref_to_bbox,
     BBox,
     EMPTY_BBOX,
+    save_models,
     sort_nodes,
     generate_document_id
 )
@@ -550,16 +551,7 @@ class PDFExtractor:
             documents[pdf_path] = self.extract(pdf_path)
 
         return documents
-
+    
     @staticmethod
-    def save_json(nodes: list[BaseNode], path: str | Path,) -> Path:
-
-        path = Path(path)
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        data = [node.model_dump(mode="json") for node in nodes]
-
-        path.write_text(json.dumps(data, indent=4, ensure_ascii=False), encoding="utf-8",)
-
-        return path
+    def to_json(nodes: list[BaseNode], path: str | Path,) -> Path:
+        return save_models(nodes, path)

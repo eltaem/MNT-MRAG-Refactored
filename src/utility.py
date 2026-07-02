@@ -232,13 +232,7 @@ def load_model(
     model_cls: type[T],
 ) -> T:
 
-    path = Path(path)
-
-    payload = json.loads(
-        path.read_text(
-            encoding="utf-8",
-        )
-    )
+    payload = load_json(path)
 
     return model_cls.model_validate(
         payload,

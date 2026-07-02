@@ -47,7 +47,7 @@ class BaseModel(ABC):
 
         directory.mkdir(parents=True, exist_ok=True)
 
-        self.config.save_json(directory / "config.json")
+        self.config.to_json(directory / "config.json")
 
         self.logger.info(f"Successfully saved model to {directory}")
 
@@ -343,7 +343,7 @@ class OllamaTableCaptioningModel(BaseTableCaptioningModel):
     @classmethod
     def from_folder(cls, directory: str | Path,) -> "OllamaTableCaptioningModel":
 
-        config = OllamaTableCaptioningConfig.load_json(
+        config = OllamaTableCaptioningConfig.from_json(
             Path(directory) / "config.json"
         )
 

@@ -8,7 +8,7 @@ from pydantic import (
     computed_field,
 )
 from enum import StrEnum
-from src.utility import LogLevel, sanitize_name
+from src.utility import LogLevel, load_model, sanitize_name, save_model
 
 class TextMergeMode(StrEnum):
     PAGE = "page"
@@ -30,39 +30,27 @@ class BaseConfig(BaseModel):
         validate_assignment=True,
     )
 
-    name: str | None = None
+    @property
+    def name(self) -> str | None:
+        return None
 
-    def save_json(
+    def to_json(
         self,
         path: str | Path,
     ) -> Path:
-
-        path = Path(path)
-
-        path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
+        return save_model(
+            self,
+            path,
         )
-
-        path.write_text(
-            self.model_dump_json(indent=4),
-            encoding="utf-8",
-        )
-
-        return path
 
     @classmethod
-    def load_json(
+    def from_json(
         cls,
         path: str | Path,
     ):
-
-        path = Path(path)
-
-        return cls.model_validate_json(
-            path.read_text(
-                encoding="utf-8"
-            )
+        return load_model(
+            path,
+            cls,
         )
 
     log_level: LogLevel = LogLevel.INFO
@@ -414,10 +402,11 @@ class BaseChunkerConfig(BaseConfig):
     )
 
 class DoublePassMergingChunkerConfig(BaseChunkerConfig):
-
-    name:str = Field(
-        default="dpmc"
-    )
+    
+    @computed_field
+    @property
+    def name(self) -> str:
+        return "dpmc"
     
     initial_threshold: float = Field(
         default=0.4,
@@ -508,7 +497,6 @@ class EmbedderConfig(BaseConfig):
 
     dtype: str = "float16"
 
-    @computed_field
     @property
     def name(self) -> str:
         return sanitize_name(self.model_name)
@@ -682,17 +670,6 @@ class StorageConfig(BaseConfig):
         self.chunk_dir.mkdir(
             parents=True,
             exist_ok=True,
-        )
-    
-    @staticmethod
-    def sanitize_embedder_name(
-        embedder_name: str,
-    ) -> str:
-        return (
-            embedder_name
-            .replace("/", "-")
-            .replace("\\", "-")
-            .replace(" ", "_")
         )
 
 load_dotenv()

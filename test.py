@@ -219,7 +219,7 @@ def test_pdf_extractor():
     )
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     pdf_debug_path = Path("outputs") / f"run-{timestamp}" / "debug" / "nodes.json"
-    PDFExtractor.save_json(nodes, pdf_debug_path)
+    PDFExtractor.to_json(nodes, pdf_debug_path)
 
 def test_pdfs_extractor():
     from src.configs import PDFExtractorConfig
@@ -231,7 +231,7 @@ def test_pdfs_extractor():
     documents = extractor.extract_many("data/test")
     for i, (path, nodes) in enumerate(documents.items()):
         print(path, len(nodes))
-        PDFExtractor.save_json(nodes, pdf_debug_dir / "many_documents" / f"document_{i}.json")
+        PDFExtractor.to_json(nodes, pdf_debug_dir / "many_documents" / f"document_{i}.json")
 
 def test_pdf_processor(path:Path):
     from src.processors import RemoveBeforePatternProcessor, TextMerger
@@ -409,5 +409,6 @@ def runtime() -> Path:
     return pdf_debug_dir
 
 if __name__ == "__main__":
-    test_dpmc(runtime())
+    test_pdfs_extractor()
+    # test_dpmc(runtime())
     # asyncio.run(test_apdfs_processor(runtime()))

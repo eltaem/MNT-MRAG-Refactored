@@ -476,6 +476,15 @@ class QAIndexerConfig(
 
     pass
 
+class SourceIndexerConfig(
+    BaseIndexerConfig,
+):
+    """
+    Configuration for indexing source chunks.
+    """
+
+    pass
+
 class EmbedderConfig(BaseConfig):
 
     model_config = ConfigDict(

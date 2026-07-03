@@ -23,3 +23,9 @@ iqa:
 
 ciqa:
 	tmux attach -t index-qa
+
+is:
+	bash $(SCRIPTS)/src-indexer.sh
+
+cis:
+	tmux attach -t index-src

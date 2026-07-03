@@ -64,6 +64,14 @@ class ChunkRecord(BaseModel):
     def document_id(self):
         return self.chunk.document_id
     
+    @property
+    def node_type(self):
+        return self.chunk.node_type
+
+    @property
+    def metadata(self):
+        return self.chunk.metadata
+    
     @classmethod
     def from_embeddings(
         cls,
@@ -225,6 +233,10 @@ class DoublePassMergingChunker(
                 ),
             )
         )
+    
+    @property
+    def name(self) -> str:
+        return self.config.name
 
     def chunk(
         self,

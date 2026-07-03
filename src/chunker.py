@@ -10,6 +10,7 @@ from src.configs import BaseChunkerConfig, DoublePassMergingChunkerConfig
 from src.embedder import Embedder
 from src.nodes import BaseNode
 from src.utility import deterministic_uuid, load_models, logger, save_models
+from src.vector_store import SearchResult
 
 def generate_chunk_id(
     node_id: str,
@@ -102,6 +103,27 @@ class ChunkRecord(BaseModel):
             )
             for chunk in chunks
         ]
+    
+    def to_payload(self) -> dict:
+
+        return {
+            "chunk": self.chunk.model_dump(mode="json"),
+        }
+
+    @classmethod
+    def from_search_result(
+        cls,
+        result: SearchResult,
+    ) -> "ChunkRecord":
+        return cls(
+            chunk=Chunk.model_validate(
+                result.payload["chunk"],
+            ),
+            embedding=ChunkEmbedding(
+                chunk_id=result.id,
+                embedding=result.embedding,
+            ),
+        )
 
 class BaseChunker(ABC):
 

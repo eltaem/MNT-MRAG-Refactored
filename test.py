@@ -408,7 +408,34 @@ def runtime() -> Path:
     pdf_debug_dir = Path("outputs") / f"run-{timestamp}" / "debug"
     return pdf_debug_dir
 
+def test_src_retriever():
+    from src.retriever import SourceRetriever
+    from src.configs import QdrantVectorStoreConfig, SourceRetrieverConfig
+    from src.vector_store import QdrantVectorStore
+    vs_conf = QdrantVectorStoreConfig()
+    vector_store = QdrantVectorStore(vs_conf)
+    retriever = SourceRetriever(SourceRetrieverConfig(), vector_store, "src-dpmc-codefuse-ai-F2LLM-v2-8B")
+    chunks = retriever.scroll(2)
+    for chunk in chunks:
+        print("="*50)
+        print(chunk.text)
+        print("="*50)
+
+def test_qa_retriever():
+    from src.retriever import QARetriever
+    from src.configs import QdrantVectorStoreConfig, QARetrieverConfig
+    from src.vector_store import QdrantVectorStore
+    vs_conf = QdrantVectorStoreConfig()
+    vector_store = QdrantVectorStore(vs_conf)
+    retriever = QARetriever(QARetrieverConfig(), vector_store, "qa-codefuse-ai-F2LLM-v2-8B")
+    qa_records = retriever.scroll(2)
+    for qa_record in qa_records:
+        print("="*50)
+        print("Question                 : ", qa_record.qa.question)
+        print("Answer (Ground Truth)    : ", qa_record.qa.answer)
+        print("="*50)
+
 if __name__ == "__main__":
-    test_pdfs_extractor()
+    test_qa_retriever()
     # test_dpmc(runtime())
     # asyncio.run(test_apdfs_processor(runtime()))

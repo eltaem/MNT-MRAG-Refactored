@@ -70,12 +70,7 @@ class SourceIndexer(BaseIndexer):
                 PointStruct(
                     id=record.chunk_id,
                     vector=record.embedding.embedding,
-                    payload={
-                        "document_id": record.document_id,
-                        "node_type": record.node_type,
-                        "text": record.text,
-                        "metadata": record.metadata,
-                    },
+                    payload=record.to_payload(),
                 )
                 for record in batch
             ]

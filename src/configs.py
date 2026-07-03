@@ -446,6 +446,11 @@ class BaseVectorStoreConfig(BaseConfig):
 
     recreate_if_exists: bool = False
 
+    scroll_batch_size: int = Field(
+        default=256,
+        gt=0,
+    )
+
 class QdrantVectorStoreConfig(BaseVectorStoreConfig):
 
     backend: QdrantConfig = Field(
@@ -683,3 +688,41 @@ class StorageConfig(BaseConfig):
 
 load_dotenv()
 STORAGE_CONFIG = StorageConfig(project_root=os.getenv("PROJECT_ROOT"))
+
+class BaseEvaluatorConfig(BaseConfig):
+
+    enabled: bool = True
+
+class RAGEvaluatorConfig(
+    BaseEvaluatorConfig,
+):
+    pass
+
+class BaseRetrieverConfig(BaseConfig):
+
+    enabled: bool = True
+
+    top_k: int = Field(
+        default=3,
+        gt=0,
+    )
+
+    score_threshold: float | None = None
+
+class DenseRetrieverConfig(BaseRetrieverConfig):
+
+    @property
+    def name(self):
+        return "dense"
+
+class SourceRetrieverConfig(
+    DenseRetrieverConfig,
+):
+
+    pass
+
+class QARetrieverConfig(
+    DenseRetrieverConfig,
+):
+
+    pass

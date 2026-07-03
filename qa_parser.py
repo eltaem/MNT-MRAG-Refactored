@@ -10,6 +10,7 @@ from src.utility import (
     load_models,
     save_models,
 )
+from src.vector_store import SearchResult
 
 load_dotenv()
 
@@ -74,6 +75,38 @@ class QARecord(BaseModel):
             )
             for qa in qa_items
         ]
+
+    def to_payload(self) -> dict:
+        return {
+            "qa": self.qa.model_dump(
+                mode="json",
+            ),
+            "answer_embedding": self.embedding.answer_embedding,
+        }
+
+    @classmethod
+    def from_search_result(
+        cls,
+        result: SearchResult,
+    ) -> "QARecord":
+
+        if result.embedding is None:
+            raise ValueError(
+                "SearchResult does not contain vectors."
+            )
+
+        return cls(
+            qa=QAItem.model_validate(
+                result.payload["qa"],
+            ),
+            embedding=QAEmbedding(
+                qa_id=result.id,
+                question_embedding=result.embedding,
+                answer_embedding=result.payload[
+                    "answer_embedding"
+                ],
+            ),
+        )
 
 class QAEmbeddingParser:
 

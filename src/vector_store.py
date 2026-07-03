@@ -15,7 +15,7 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from src.configs import QdrantVectorStoreConfig
+from src.configs import BaseVectorStoreConfig, QdrantVectorStoreConfig
 
 class SearchResult(BaseModel):
     """
@@ -32,6 +32,12 @@ class SearchResult(BaseModel):
 
 
 class BaseVectorStore(ABC):
+
+    def __init__(
+        self,
+        config: BaseVectorStoreConfig,
+    ):
+        self.config = config
 
     @abstractmethod
     def create_collection(
@@ -95,13 +101,26 @@ class BaseVectorStore(ABC):
     def scroll(
         self,
         collection_name: str,
+        limit: int | None = None,
         filters: dict[str, Any] | None = None,
         with_vectors: bool = False,
     ) -> list[SearchResult]:
         """
-        Iterate over all vectors satisfying a filter.
+        Iterate over vectors in a collection.
+
+        Parameters
+        ----------
+        limit:
+            Maximum number of records to return.
+            None returns every available record.
+
+        filters:
+            Optional metadata filter.
+
+        with_vectors:
+            Whether to include stored vectors.
         """
-        pass
+        ...
 
 class QdrantVectorStore(BaseVectorStore):
 
@@ -109,7 +128,10 @@ class QdrantVectorStore(BaseVectorStore):
         self,
         config: QdrantVectorStoreConfig,
     ):
-        if config.backend.path is None:
+        
+        self.config = config
+
+        if self.config.backend.path is None:
             self.client = QdrantClient(
                 host=config.backend.host,
                 port=config.backend.port,
@@ -246,6 +268,7 @@ class QdrantVectorStore(BaseVectorStore):
     def scroll(
         self,
         collection_name: str,
+        limit: int | None = None,
         filters: dict[str, Any] | None = None,
         with_vectors: bool = False,
     ) -> list[SearchResult]:
@@ -260,11 +283,23 @@ class QdrantVectorStore(BaseVectorStore):
 
         while True:
 
+            current_limit = (
+                self.config.scroll_batch_size
+                if limit is None
+                else min(
+                    self.config.scroll_batch_size,
+                    limit - len(results),
+                )
+            )
+
+            if current_limit <= 0:
+                break
+
             points, offset = self.client.scroll(
                 collection_name=collection_name,
                 scroll_filter=query_filter,
                 offset=offset,
-                limit=256,
+                limit=current_limit,
                 with_payload=True,
                 with_vectors=with_vectors,
             )

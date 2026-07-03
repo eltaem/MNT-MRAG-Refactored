@@ -88,11 +88,7 @@ class QAIndexer(BaseIndexer):
                 PointStruct(
                     id=record.qa.qa_id,
                     vector=record.embedding.question_embedding,
-                    payload={
-                        "question": record.qa.question,
-                        "answer": record.qa.answer,
-                        "answer_embedding": record.embedding.answer_embedding,
-                    },
+                    payload=record.to_payload()
                 )
                 for record in batch
             ]

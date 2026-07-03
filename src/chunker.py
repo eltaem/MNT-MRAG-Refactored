@@ -6,6 +6,7 @@ from llama_index.core import Document
 from pydantic import BaseModel, Field
 
 from llama_index.core.node_parser import SemanticDoubleMergingSplitterNodeParser
+from src.record import BaseRecord
 from src.configs import BaseChunkerConfig, DoublePassMergingChunkerConfig
 from src.embedder import Embedder
 from src.nodes import BaseNode
@@ -47,7 +48,7 @@ class ChunkEmbedding(BaseModel):
 
     embedding: list[float]
 
-class ChunkRecord(BaseModel):
+class ChunkRecord(BaseRecord):
 
     chunk: Chunk
 

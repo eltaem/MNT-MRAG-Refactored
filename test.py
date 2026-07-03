@@ -421,14 +421,17 @@ def test_src_retriever():
         print(chunk.text)
         print("="*50)
 
-def test_qa_retriever():
+def test_qa_retriever(path: Path):
     from src.retriever import QARetriever
     from src.configs import QdrantVectorStoreConfig, QARetrieverConfig
     from src.vector_store import QdrantVectorStore
+    from qa_parser import QARecord
     vs_conf = QdrantVectorStoreConfig()
     vector_store = QdrantVectorStore(vs_conf)
     retriever = QARetriever(QARetrieverConfig(), vector_store, "qa-codefuse-ai-F2LLM-v2-8B")
     qa_records = retriever.scroll(2)
+    output_path = path / "records.json"
+    QARecord.to_json(qa_records, output_path)
     for qa_record in qa_records:
         print("="*50)
         print("Question                 : ", qa_record.qa.question)
@@ -436,6 +439,6 @@ def test_qa_retriever():
         print("="*50)
 
 if __name__ == "__main__":
-    test_qa_retriever()
+    test_qa_retriever(runtime())
     # test_dpmc(runtime())
     # asyncio.run(test_apdfs_processor(runtime()))

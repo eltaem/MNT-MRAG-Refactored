@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 from pydantic import BaseModel, computed_field
 import pandas as pd
+from src.record import BaseRecord
 from src.utility import (
     deterministic_uuid,
     load_json,
@@ -39,7 +40,7 @@ class QAEmbedding(BaseModel):
 
     answer_embedding: list[float]
 
-class QARecord(BaseModel):
+class QARecord(BaseRecord):
 
     qa: QAItem
 
@@ -50,7 +51,7 @@ class QARecord(BaseModel):
         cls,
         qa_items: list[QAItem],
         qa_embeddings: list[QAEmbedding],
-    ) -> list["QARecord"]:
+    ) -> list[QARecord]:
 
         embedding_map = {
             emb.qa_id: emb

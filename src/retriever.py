@@ -2,11 +2,12 @@ from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar
 
 from qa_parser import QARecord
+from src.record import BaseRecord
 from src.chunker import ChunkRecord
 from src.configs import BaseRetrieverConfig, DenseRetrieverConfig, QARetrieverConfig, SourceRetrieverConfig
 from src.vector_store import BaseVectorStore
 
-RecordT = TypeVar("RecordT")
+RecordT = TypeVar("RecordT", bound=BaseRecord,)
 
 class BaseRetriever(
     ABC,
@@ -18,12 +19,12 @@ class BaseRetriever(
         config: BaseRetrieverConfig,
         vector_store: BaseVectorStore,
         collection_name: str,
-        record_cls: type[RecordT],
+        record_type: type[RecordT],
     ):
         self.config = config
         self.vector_store = vector_store
         self.collection_name = collection_name
-        self.record_cls = record_cls
+        self.record_type = record_type
 
     @abstractmethod
     def retrieve(
@@ -50,18 +51,14 @@ class DenseRetriever(
         config: DenseRetrieverConfig,
         vector_store: BaseVectorStore,
         collection_name: str,
-        record_cls: type[RecordT],
+        record_type: type[RecordT],
     ):
         super().__init__(
             config=config,
             vector_store=vector_store,
             collection_name=collection_name,
-            record_cls=record_cls
+            record_type=record_type
         )
-
-        self.config = config
-        self.collection_name = collection_name
-        self.record_cls = record_cls
 
     def retrieve(
         self,
@@ -76,7 +73,7 @@ class DenseRetriever(
         )
 
         return [
-            self.record_cls.from_search_result(
+            self.record_type.from_search_result(
                 hit,
             )
             for hit in hits
@@ -96,7 +93,7 @@ class DenseRetriever(
         )
 
         return [
-            self.record_cls.from_search_result(
+            self.record_type.from_search_result(
                 result,
             )
             for result in results
@@ -116,7 +113,7 @@ class SourceRetriever(
             config=config,
             vector_store=vector_store,
             collection_name=collection_name,
-            record_cls=ChunkRecord,
+            record_type=ChunkRecord,
         )
 
 class QARetriever(
@@ -133,5 +130,5 @@ class QARetriever(
             config=config,
             vector_store=vector_store,
             collection_name=collection_name,
-            record_cls=QARecord,
+            record_type=QARecord,
         )

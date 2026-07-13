@@ -29,7 +29,8 @@ class BaseRetriever(
     @abstractmethod
     def retrieve(
         self,
-        query_vector: list[float],
+        query_embedding: list[float],
+        filters: dict[str, Any] | None = None,
     ) -> list[RecordT]:
         ...
 
@@ -62,14 +63,16 @@ class DenseRetriever(
 
     def retrieve(
         self,
-        query_vector: list[float],
+        query: list[float],
+        filters: dict[str, Any] | None = None,
     ) -> list[RecordT]:
 
         hits = self.vector_store.search(
             collection_name=self.collection_name,
-            query_vector=query_vector,
-            limit=self.config.top_k,
-            score_threshold=self.config.score_threshold,
+            query=query,
+            top_k=self.config.top_k,
+            filters=filters,
+            with_vectors=True,
         )
 
         return [

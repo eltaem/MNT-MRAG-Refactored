@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Self, TypeVar
 
 from numpy import mean
 from pydantic import (
@@ -22,7 +22,9 @@ from src.configs import (
 from src.utility import (
     generate_collection_name,
     load_model,
-    save_model
+    load_models,
+    save_model,
+    save_models
 )
 
 class BaseEvaluationResult(BaseModel, ABC):
@@ -107,7 +109,36 @@ class BaseEvaluator(ABC):
     ) -> BaseEvaluationResult:
         ...
 
-class RAGEvaluationSample(BaseModel):
+
+class BaseSample(
+    BaseModel,
+    ABC,
+):
+
+    @classmethod
+    def from_json(
+        cls,
+        path: str | Path,
+    ) -> list[Self]:
+
+        return load_models(
+            path,
+            cls,
+        )
+
+    @staticmethod
+    def to_json(
+        samples: list[Self],
+        path: str | Path,
+    ) -> Path:
+
+        return save_models(
+            samples,
+            path,
+        )
+
+
+class RAGEvaluationSample(BaseSample):
 
     qa_id: str
 

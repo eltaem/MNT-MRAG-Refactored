@@ -116,7 +116,22 @@ class BasePretrainedConfig(BaseMLConfig):
 # GENERATION PARAMETERS
 # ============================================================
 
-class TextGenerationConfig(BasePretrainedConfig):
+class BaseTextGenerationConfig(BasePretrainedConfig):
+
+    system_prompt: str = (
+        "You are a helpful AI assistant. "
+        "Generate clear, accurate, concise, and well-structured responses "
+        "in {language}. Base your response only on the information provided "
+        "in the prompt. Do not fabricate facts, speculate, or introduce "
+        "unsupported information. If the provided information is insufficient "
+        "to answer confidently, explicitly state the limitation rather than "
+        "guessing."
+    )
+
+    language: str = Field(
+        default="indonesian",
+        description="Language used for generated captions.",
+    )
 
     max_new_tokens: int = Field(
         default=256,
@@ -141,11 +156,8 @@ class TextGenerationConfig(BasePretrainedConfig):
 # CAPTIONING
 # ============================================================
 
-class BaseCaptioningConfig(TextGenerationConfig):
-    language: str = Field(
-        default="indonesian",
-        description="Language used for generated captions.",
-    )
+class BaseCaptioningConfig(BaseTextGenerationConfig):
+    pass
 
 class BaseImageCaptioningConfig(BaseCaptioningConfig):
 
@@ -213,7 +225,7 @@ class TransformerTableCaptioningConfig(BaseTableCaptioningConfig):
 # TEXT GENERATION
 # ============================================================
 
-class BaseTextGeneratorConfig(TextGenerationConfig):
+class BaseTextGeneratorConfig(BaseTextGenerationConfig):
     pass
 
 
@@ -726,3 +738,15 @@ class QARetrieverConfig(
 ):
 
     pass
+
+class RAGPipelineConfig(BaseConfig):
+
+    context_header: str = "Retrieved Context"
+
+    question_header: str = "Question"
+
+    answer_header: str = "Answer"
+
+    separator: str = "\n\n"
+
+    include_chunk_separator: str = "\n\n---\n\n"

@@ -438,7 +438,42 @@ def test_qa_retriever(path: Path):
         print("Answer (Ground Truth)    : ", qa_record.qa.answer)
         print("="*50)
 
+def test_rag_pipeline(path:Path):
+    from src.configs import (
+        RAGPipelineConfig,
+        QARetrieverConfig,
+        QdrantVectorStoreConfig,
+        SourceRetrieverConfig,
+        OllamaTextGeneratorConfig,
+    )
+    from src.rag_pipeline import RAGPipeline, RAGEvaluationSample
+    from src.retriever import QARetriever, SourceRetriever
+    from src.vector_store import QdrantVectorStore
+    from src.models import OllamaTextGenerator
+    rag_pipeline_config = RAGPipelineConfig()
+    qa_r_conf = QARetrieverConfig()
+    vstore_conf = QdrantVectorStoreConfig()
+    vector_store = QdrantVectorStore(vstore_conf)
+    qa_retriever = QARetriever(qa_r_conf, vector_store, "qa-codefuse-ai-F2LLM-v2-8B")
+    src_r_conf = SourceRetrieverConfig()
+    src_retriever = SourceRetriever(src_r_conf, vector_store, "src-dpmc-codefuse-ai-F2LLM-v2-8B")
+    tgen_conf = OllamaTextGeneratorConfig(model_name="qwen3.5:9b", device="cuda", max_new_tokens=512)
+    text_generator = OllamaTextGenerator(tgen_conf)
+    text_generator.load_pretrained()
+    rag_pipeline = RAGPipeline(
+        rag_pipeline_config,
+        qa_retriever,
+        src_retriever,
+        text_generator
+    )
+
+    samples = rag_pipeline.generate_samples(2)
+
+    output_path = path / "eval_sample.json"
+    RAGEvaluationSample.to_json(samples, output_path)
+
 if __name__ == "__main__":
-    test_qa_retriever(runtime())
+    # test_qa_retriever(runtime())
     # test_dpmc(runtime())
     # asyncio.run(test_apdfs_processor(runtime()))
+    test_rag_pipeline(runtime())

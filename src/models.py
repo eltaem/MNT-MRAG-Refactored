@@ -9,7 +9,7 @@ import numpy as np
 from transformers import pipeline
 
 from src.utility import clean_text, serialize_table
-from src.configs import BaseConfig, BaseImageCaptioningConfig, BasePretrainedConfig, BaseCaptioningConfig, BaseTableCaptioningConfig, BaseTextGeneratorConfig, OllamaImageCaptioningConfig, OllamaTableCaptioningConfig, TransformerImageCaptioningConfig
+from src.configs import BaseConfig, BaseImageCaptioningConfig, BasePretrainedConfig, BaseCaptioningConfig, BaseTableCaptioningConfig, BaseTextGeneratorConfig, OllamaImageCaptioningConfig, OllamaTableCaptioningConfig, OllamaTextGeneratorConfig, TransformerImageCaptioningConfig
 
 import ollama
 
@@ -109,21 +109,101 @@ class BaseCaptioningModel(BasePretrainedModel):
 
 class BaseTextGeneratorModel(BasePretrainedModel):
 
-    def __init__(self, config: BaseTextGeneratorConfig):
-
+    def __init__(
+        self,
+        config: BaseTextGeneratorConfig,
+    ):
         super().__init__(config)
+
         self.config = config
 
     @abstractmethod
     def generate(
         self,
         prompt: str,
+        *,
+        temperature: float | None = None,
+        stop: list[str] | None = None,
         **kwargs,
     ) -> str:
         """
-        Generate text from a prompt.
+        Generate a single completion.
         """
-        pass
+        ...
+
+    def generate_many(
+        self,
+        prompt: str,
+        n: int = 1,
+        *,
+        temperature: float | None = None,
+        stop: list[str] | None = None,
+        **kwargs,
+    ) -> list[str]:
+        """
+        Generate multiple completions.
+
+        Concrete implementations may override this
+        with native batched generation.
+        """
+
+        return [
+            self.generate(
+                prompt=prompt,
+                temperature=temperature,
+                stop=stop,
+                **kwargs,
+            )
+            for _ in range(n)
+        ]
+
+    async def agenerate(
+        self,
+        prompt: str,
+        *,
+        temperature: float | None = None,
+        stop: list[str] | None = None,
+        **kwargs,
+    ) -> str:
+        """
+        Asynchronous single completion.
+
+        Concrete implementations may override this
+        with native async inference.
+        """
+
+        return self.generate(
+            prompt=prompt,
+            temperature=temperature,
+            stop=stop,
+            **kwargs,
+        )
+
+    async def agenerate_many(
+        self,
+        prompt: str,
+        n: int = 1,
+        *,
+        temperature: float | None = None,
+        stop: list[str] | None = None,
+        **kwargs,
+    ) -> list[str]:
+        """
+        Asynchronous multiple completions.
+
+        Concrete implementations may override this
+        with native async batched inference.
+        """
+
+        return [
+            await self.agenerate(
+                prompt=prompt,
+                temperature=temperature,
+                stop=stop,
+                **kwargs,
+            )
+            for _ in range(n)
+        ]
 
 class BaseImageCaptioningModel(BaseCaptioningModel):
     def __init__(
@@ -345,6 +425,103 @@ class OllamaTableCaptioningModel(BaseTableCaptioningModel):
 
         config = OllamaTableCaptioningConfig.from_json(
             Path(directory) / "config.json"
+        )
+
+        model = cls(config)
+
+        model.load_pretrained()
+
+        return model
+
+class OllamaTextGenerator(
+    BaseTextGeneratorModel,
+):
+
+    def __init__(
+        self,
+        config: OllamaTextGeneratorConfig,
+    ):
+        super().__init__(config)
+
+        self.config = config
+
+        self._client: ollama.Client | None = None
+
+    def load_pretrained(
+        self,
+    ) -> None:
+
+        self._client = ollama.Client(
+            host=self.config.backend.host,
+        )
+
+        self.is_loaded = True
+
+    def unload(
+        self,
+    ) -> None:
+
+        self._client = None
+
+        self.is_loaded = False
+
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: str | None = None,
+        **kwargs,
+    ) -> str:
+
+        self._check_is_loaded()
+
+        if system_prompt is None:
+            system_prompt = (
+                self.config.system_prompt.format(
+                    language=self.config.language,
+                )
+            )
+
+        response = self._client.chat(
+            model=self.config.model_name,
+            think=self.config.backend.think,
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+            options={
+                "temperature": kwargs.get(
+                    "temperature",
+                    self.config.temperature,
+                ),
+                "top_p": kwargs.get(
+                    "top_p",
+                    self.config.top_p,
+                ),
+                "num_predict": kwargs.get(
+                    "max_new_tokens",
+                    self.config.max_new_tokens,
+                ),
+            },
+        )
+
+        return clean_text(
+            response.message.content,
+        )
+
+    @classmethod
+    def from_folder(
+        cls,
+        directory: str | Path,
+    ) -> "OllamaTextGenerator":
+
+        config = OllamaTextGeneratorConfig.from_json(
+            Path(directory) / "config.json",
         )
 
         model = cls(config)

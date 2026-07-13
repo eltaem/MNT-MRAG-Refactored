@@ -1,6 +1,6 @@
 SCRIPTS := scripts
 
-.PHONY: kill load cload ollama users qdrant iqa ciqa is parse
+.PHONY: kill load cload ollama users qdrant iqa ciqa is parse dpd
 
 kill:
 	bash $(SCRIPTS)/kill.sh
@@ -29,3 +29,6 @@ is:
 
 cis:
 	tmux attach -t index-src
+
+dpd:
+	bash $(SCRIPTS)/dependencies.sh

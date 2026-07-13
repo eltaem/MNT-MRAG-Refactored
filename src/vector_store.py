@@ -87,7 +87,7 @@ class BaseVectorStore(ABC):
     def search(
         self,
         collection_name: str,
-        query_embedding: list[float],
+        query: list[float],
         top_k: int = 3,
         filters: dict[str, Any] | None = None,
         with_vectors: bool = False,
@@ -228,7 +228,7 @@ class QdrantVectorStore(BaseVectorStore):
     def search(
         self,
         collection_name: str,
-        query_embedding: list[float],
+        query: list[float],
         top_k: int = 3,
         filters: dict[str, Any] | None = None,
         with_vectors: bool = False,
@@ -238,9 +238,9 @@ class QdrantVectorStore(BaseVectorStore):
             filters,
         )
 
-        hits = self.client.search(
+        response = self.client.query_points(
             collection_name=collection_name,
-            query_vector=query_embedding,
+            query=query,
             query_filter=query_filter,
             limit=top_k,
             with_payload=True,
@@ -249,16 +249,16 @@ class QdrantVectorStore(BaseVectorStore):
 
         return [
             SearchResult(
-                id=str(hit.id),
-                score=hit.score,
-                payload=hit.payload,
+                id=str(point.id),
+                score=point.score,
+                payload=point.payload,
                 embedding=(
-                    hit.vector
+                    point.vector
                     if with_vectors
                     else None
                 ),
             )
-            for hit in hits
+            for point in response.points
         ]
 
     # ------------------------------------------------------------------

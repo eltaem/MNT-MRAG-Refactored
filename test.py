@@ -457,7 +457,7 @@ def test_rag_pipeline(path:Path):
     qa_retriever = QARetriever(qa_r_conf, vector_store, "qa-codefuse-ai-F2LLM-v2-8B")
     src_r_conf = SourceRetrieverConfig()
     src_retriever = SourceRetriever(src_r_conf, vector_store, "src-dpmc-codefuse-ai-F2LLM-v2-8B")
-    tgen_conf = OllamaTextGeneratorConfig(model_name="qwen3.5:9b", device="cuda", max_new_tokens=512)
+    tgen_conf = OllamaTextGeneratorConfig(model_name="qwen3.5:9b", max_new_tokens=512)
     text_generator = OllamaTextGenerator(tgen_conf)
     text_generator.load_pretrained()
     rag_pipeline = RAGPipeline(
@@ -472,8 +472,30 @@ def test_rag_pipeline(path:Path):
     output_path = path / "eval_sample.json"
     RAGEvaluationSample.to_json(samples, output_path)
 
+def test_rag_evaluator(path:Path):
+    from src.evaluator import (
+        RAGEvaluationSample,
+        RAGEvaluator,
+    )
+    from src.configs import (
+        RAGEvaluatorConfig,
+        EmbedderConfig,
+        OllamaTextGeneratorConfig
+    )
+    from src.embedder import Embedder
+    from src.models import OllamaTextGenerator
+    samples = RAGEvaluationSample.from_json("outputs/run-20260713_082634/debug/eval_sample.json")
+    embedder = Embedder(EmbedderConfig(model_name="codefuse-ai/F2LLM-v2-8B"))
+    generator = OllamaTextGenerator(OllamaTextGeneratorConfig(model_name="qwen3.5:9b", max_new_tokens=512))
+    generator.load_pretrained()
+    evaluator = RAGEvaluator(RAGEvaluatorConfig(), embedder, generator)
+    results = evaluator.evaluate_many(samples)
+    for result in results:
+        result.to_json(path / f"eval_sample_scored_{result.sample.qa_id}.json")
+
 if __name__ == "__main__":
     # test_qa_retriever(runtime())
     # test_dpmc(runtime())
     # asyncio.run(test_apdfs_processor(runtime()))
-    test_rag_pipeline(runtime())
+    # test_rag_pipeline(runtime())
+    test_rag_evaluator(runtime())

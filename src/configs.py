@@ -63,7 +63,7 @@ class BaseMLConfig(BaseConfig):
 
     random_state: int | None = None
 
-    device: str = "cpu"
+    device: str = "cuda"
 
 
 # ============================================================

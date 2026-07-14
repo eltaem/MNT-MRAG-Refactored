@@ -2,18 +2,19 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, Type, TypeVar
 import json
 import logging
 import numpy as np
+from pydantic import BaseModel
 from transformers import pipeline
 
 from src.utility import clean_text, serialize_table
 from src.configs import BaseConfig, BaseImageCaptioningConfig, BasePretrainedConfig, BaseCaptioningConfig, BaseTableCaptioningConfig, BaseTextGeneratorConfig, OllamaImageCaptioningConfig, OllamaTableCaptioningConfig, OllamaTextGeneratorConfig, TransformerImageCaptioningConfig
-
+InstructorTypeVar = TypeVar("T", bound=BaseModel)
 import ollama
 
-class BaseModel(ABC):
+class MyBaseModel(ABC):
 
     def __init__(self, config: BaseConfig):
         self.config = config
@@ -58,7 +59,7 @@ class BaseModel(ABC):
     # def from_folder(cls, directory: str | Path) -> Self:
     #     pass
 
-class BasePretrainedModel(BaseModel):
+class BasePretrainedModel(MyBaseModel):
 
     def __init__(self, config: BasePretrainedConfig,
     ):
@@ -204,6 +205,24 @@ class BaseTextGeneratorModel(BasePretrainedModel):
             )
             for _ in range(n)
         ]
+    
+    @abstractmethod
+    def generate_structured(
+        self,
+        prompt: str,
+        response_model: Type[InstructorTypeVar],
+        **kwargs,
+    ) -> InstructorTypeVar:
+        ...
+
+    @abstractmethod
+    async def agenerate_structured(
+        self,
+        prompt: str,
+        response_model: Type[InstructorTypeVar],
+        **kwargs,
+    ) -> InstructorTypeVar:
+        ...
 
 class BaseImageCaptioningModel(BaseCaptioningModel):
     def __init__(
@@ -529,3 +548,105 @@ class OllamaTextGenerator(
         model.load_pretrained()
 
         return model
+    
+    def generate_structured(
+        self,
+        prompt: str,
+        response_model: Type[InstructorTypeVar],
+        system_prompt: str | None = None,
+        **kwargs,
+    ) -> BaseModel:
+
+        self._check_is_loaded()
+
+        if system_prompt is None:
+            system_prompt = (
+                self.config.system_prompt.format(
+                    language=self.config.language,
+                )
+            )
+
+        response:ollama.ChatResponse = self._client.chat(
+            model=self.config.model_name,
+            think=self.config.backend.think,
+            format=response_model.model_json_schema(),
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+            options={
+                "temperature": kwargs.get(
+                    "temperature",
+                    self.config.temperature,
+                ),
+                "top_p": kwargs.get(
+                    "top_p",
+                    self.config.top_p,
+                ),
+                "num_predict": kwargs.get(
+                    "max_new_tokens",
+                    self.config.max_new_tokens,
+                ),
+            },
+        )
+
+        return response_model.model_validate_json(
+            response.message.content,
+        )
+    
+    async def agenerate_structured(
+        self,
+        prompt: str,
+        response_model: Type[InstructorTypeVar],
+        system_prompt: str | None = None,
+        **kwargs,
+    ) -> BaseModel:
+
+        self._check_is_loaded()
+
+        if system_prompt is None:
+            system_prompt = (
+                self.config.system_prompt.format(
+                    language=self.config.language,
+                )
+            )
+
+        response:ollama.ChatResponse = await self._client.chat(
+            model=self.config.model_name,
+            think=self.config.backend.think,
+            format=response_model.model_json_schema(),
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+            options={
+                "temperature": kwargs.get(
+                    "temperature",
+                    self.config.temperature,
+                ),
+                "top_p": kwargs.get(
+                    "top_p",
+                    self.config.top_p,
+                ),
+                "num_predict": kwargs.get(
+                    "max_new_tokens",
+                    self.config.max_new_tokens,
+                ),
+            },
+        )
+
+        return response_model.model_validate_json(
+            response.message.content,
+        )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from src.embedder import Embedder
 from src.configs import RAGPipelineConfig
 from src.evaluator import RAGEvaluationSample
 from qa_parser import QARecord
@@ -16,12 +17,13 @@ class RAGPipeline:
     def __init__(
         self,
         config: RAGPipelineConfig,
+        embedder: Embedder,
         qa_retriever: QARetriever,
         source_retriever: SourceRetriever,
         generator: BaseTextGeneratorModel,
     ):
         self.config = config
-
+        self.embedder = embedder
         self.qa_retriever = qa_retriever
         self.source_retriever = source_retriever
 
@@ -31,7 +33,7 @@ class RAGPipeline:
     # Retrieval
     # =====================================================
 
-    def retrieve_chunks(
+    def _retrieve_chunks(
         self,
         qa_record: QARecord,
     ) -> list[ChunkRecord]:
@@ -44,7 +46,7 @@ class RAGPipeline:
     # Prompt Construction
     # =====================================================
 
-    def build_prompt(
+    def _build_prompt(
         self,
         question: str,
         chunks: list[str],
@@ -68,7 +70,7 @@ class RAGPipeline:
     # Generation
     # =====================================================
 
-    def generate_answer(
+    def _generate_answer(
         self,
         prompt: str,
     ) -> str:
@@ -81,7 +83,7 @@ class RAGPipeline:
     # Packaging
     # =====================================================
 
-    def build_sample(
+    def _build_sample(
         self,
         qa_record: QARecord,
         retrieved_chunks: list[str],
@@ -95,6 +97,63 @@ class RAGPipeline:
             retrieved_chunks=retrieved_chunks,
             generated_answer=generated_answer,
         )
+    
+    def generate(
+        self,
+        question: str,
+    ) -> str:
+
+        logger.info(
+            "Generating answer for user query.",
+        )
+
+        logger.debug(
+            "Question: %s",
+            question,
+        )
+
+        query_embedding = self.embedder.embed_query(
+            question,
+        )
+
+        retrieved_records = self.source_retriever.retrieve(
+            query_embedding
+        )
+
+        logger.debug(
+            "Retrieved %d chunk(s).",
+            len(retrieved_records),
+        )
+
+        retrieved_chunks = [
+            record.text
+            for record in retrieved_records
+        ]
+
+        prompt = self._build_prompt(
+            question=question,
+            chunks=retrieved_chunks,
+        )
+
+        logger.debug(
+            "Prompt constructed (%d characters).",
+            len(prompt),
+        )
+
+        answer = self._generate_answer(
+            prompt,
+        )
+
+        logger.debug(
+            "Generated answer (%d characters).",
+            len(answer),
+        )
+
+        logger.info(
+            "Answer generated.",
+        )
+
+        return answer
 
     # =====================================================
     # Pipeline
@@ -115,7 +174,7 @@ class RAGPipeline:
             qa_record.qa.question,
         )
 
-        retrieved_records = self.retrieve_chunks(
+        retrieved_records = self._retrieve_chunks(
             qa_record,
         )
 
@@ -136,7 +195,7 @@ class RAGPipeline:
             for record in retrieved_records
         ]
 
-        prompt = self.build_prompt(
+        prompt = self._build_prompt(
             question=qa_record.qa.question,
             chunks=retrieved_chunks,
         )
@@ -146,7 +205,7 @@ class RAGPipeline:
             len(prompt),
         )
 
-        generated_answer = self.generate_answer(
+        generated_answer = self._generate_answer(
             prompt,
         )
 
@@ -155,7 +214,7 @@ class RAGPipeline:
             len(generated_answer),
         )
 
-        sample = self.build_sample(
+        sample = self._build_sample(
             qa_record=qa_record,
             retrieved_chunks=retrieved_chunks,
             generated_answer=generated_answer,

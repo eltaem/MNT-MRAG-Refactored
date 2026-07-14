@@ -9,6 +9,7 @@ from src.retriever import (
     SourceRetriever,
 )
 from src.models import BaseTextGeneratorModel
+from src.utility import logger
 
 class RAGPipeline:
 
@@ -104,9 +105,31 @@ class RAGPipeline:
         qa_record: QARecord,
     ) -> RAGEvaluationSample:
 
+        logger.info(
+            "Generating sample for QA '%s'.",
+            qa_record.qa.qa_id,
+        )
+
+        logger.debug(
+            "Question: %s",
+            qa_record.qa.question,
+        )
+
         retrieved_records = self.retrieve_chunks(
             qa_record,
         )
+
+        if not retrieved_records:
+            logger.warning(
+                "No chunks retrieved for QA '%s'.",
+                qa_record.qa.qa_id,
+            )
+        else:
+            logger.debug(
+                "Retrieved %d chunk(s) for QA '%s'.",
+                len(retrieved_records),
+                qa_record.qa.qa_id,
+            )
 
         retrieved_chunks = [
             record.text
@@ -118,28 +141,82 @@ class RAGPipeline:
             chunks=retrieved_chunks,
         )
 
+        logger.debug(
+            "Prompt constructed (%d characters).",
+            len(prompt),
+        )
+
         generated_answer = self.generate_answer(
             prompt,
         )
 
-        return self.build_sample(
+        logger.debug(
+            "Generated answer (%d characters).",
+            len(generated_answer),
+        )
+
+        sample = self.build_sample(
             qa_record=qa_record,
             retrieved_chunks=retrieved_chunks,
             generated_answer=generated_answer,
         )
+
+        logger.info(
+            "Finished sample for QA '%s'.",
+            qa_record.qa.qa_id,
+        )
+
+        return sample
+
 
     def generate_samples(
         self,
         limit: int | None = None,
     ) -> list[RAGEvaluationSample]:
 
+        logger.info(
+            "Loading QA records%s.",
+            (
+                f" (limit={limit})"
+                if limit is not None
+                else ""
+            ),
+        )
+
         qa_records = self.qa_retriever.scroll(
             limit=limit,
         )
 
-        return [
-            self.generate_sample(
-                qa_record,
+        logger.info(
+            "Loaded %d QA record(s).",
+            len(qa_records),
+        )
+
+        samples: list[RAGEvaluationSample] = []
+
+        total = len(qa_records)
+
+        for index, qa_record in enumerate(
+            qa_records,
+            start=1,
+        ):
+
+            logger.info(
+                "[%d/%d] Processing QA '%s'.",
+                index,
+                total,
+                qa_record.qa.qa_id,
             )
-            for qa_record in qa_records
-        ]
+
+            samples.append(
+                self.generate_sample(
+                    qa_record,
+                )
+            )
+
+        logger.info(
+            "Generated %d evaluation sample(s).",
+            len(samples),
+        )
+
+        return samples

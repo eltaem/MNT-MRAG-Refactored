@@ -46,7 +46,8 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         config: EmbedderConfig,
         **kwargs,
     ):
-        # super().__init__(model_name=config.model_name, **kwargs)
+
+        object.__setattr__(self, "modele", None)
 
         object.__setattr__(self, "config", config)
 

@@ -466,11 +466,17 @@ class OllamaTextGenerator(
 
         self._client: ollama.Client | None = None
 
+        self._aclient: ollama.AsyncClient | None = None
+
     def load_pretrained(
         self,
     ) -> None:
 
         self._client = ollama.Client(
+            host=self.config.backend.host,
+        )
+
+        self._aclient = ollama.AsyncClient(
             host=self.config.backend.host,
         )
 
@@ -617,7 +623,7 @@ class OllamaTextGenerator(
                 )
             )
 
-        response:ollama.ChatResponse = await self._client.chat(
+        response:ollama.ChatResponse = await self._aclient.chat(
             model=self.config.model_name,
             think=self.config.backend.think,
             format=response_model.model_json_schema(),

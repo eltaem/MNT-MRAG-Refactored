@@ -6,6 +6,7 @@ import sacrebleu
 from rouge_score import rouge_scorer
 from src.rag_schemas import (
     BaseEvaluationArtifact,
+    BenchmarkResult,
     RAGEvaluationResult,
     RAGEvaluationRun,
     RAGEvaluationSample,
@@ -383,35 +384,56 @@ class RAGEvaluator(
                 samples,
             )
         )
-    
-    def run(
+
+class RAGExperimentRunner:
+
+    def __init__(
+        self,
+        config: RAGEvaluatorConfig,
+    ):
+        self.config = config
+
+    def run_single_experiment(
         self,
         setup: RAGEvaluationSetup,
         num_samples: int | None = None,
     ) -> RAGEvaluationRun:
 
-        logger.info("Starting RAG evaluation run.")
+        pipeline = RAGPipeline.build(setup)
 
-        # 1. Build the complete RAG pipeline
-        pipeline:RAGPipeline = RAGPipeline.build(setup)
+        evaluator = RAGEvaluator(
+            config=self.config,
+            embedder=pipeline.embedder,
+            generator=pipeline.generator,
+        )
 
-        # 2. Generate RAG samples
         samples = pipeline.generate_samples(
             limit=num_samples,
         )
 
-        logger.info(
-            "Generated %d evaluation samples.",
-            len(samples),
-        )
-
-        # 3. Evaluate those samples
-        results = self.evaluate_many(
+        results = evaluator.evaluate_many(
             samples,
         )
 
-        # 4. Package this experiment
         return RAGEvaluationRun(
             setup=setup,
             results=results,
+        )
+
+    def run_multiple_experiments(
+        self,
+        setups: list[RAGEvaluationSetup],
+        num_samples: int | None = None,
+    ) -> BenchmarkResult:
+
+        runs = [
+            self.run_single_experiment(
+                setup=setup,
+                num_samples=num_samples,
+            )
+            for setup in setups
+        ]
+
+        return BenchmarkResult(
+            runs=runs,
         )

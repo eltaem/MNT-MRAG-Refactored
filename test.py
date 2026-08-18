@@ -478,7 +478,6 @@ def test_rag_evaluator(path:Path):
     from src.evaluator import (
         RAGEvaluationSample,
         RAGEvaluator,
-        RAGEvaluationResult
     )
     from src.configs import (
         RAGEvaluatorConfig,
@@ -497,18 +496,10 @@ def test_rag_evaluator(path:Path):
     results = evaluator.evaluate_many(samples)
     save_models(results, path / "evaluation_result.json")
 
-def test_experiment(path:Path):
+def test_single_experiment(path:Path):
     from src.evaluator import (
         RAGEvaluationSetup,
-        RAGEvaluator,
-    )
-
-    from src.embedder import (
-        Embedder,
-    )
-
-    from src.models import (
-        OllamaTextGenerator,
+        RAGExperimentRunner,
     )
 
     from src.configs import (
@@ -526,51 +517,107 @@ def test_experiment(path:Path):
 
     from src.utility import Modality
 
-    embedder_config=EmbedderConfig(
-            model_name="Octen/Octen-Embedding-8B"
-        )
-    
-    embedder = Embedder(embedder_config)
-
-    generator_config=OllamaTextGeneratorConfig(
-            model_name="qwen3.5:9b",
-            backend=OllamaBackendConfig(),
-            max_new_tokens=4096,
-        )
-    
-    generator = OllamaTextGenerator(generator_config)
-
-    generator.load_pretrained()
-
     setup = RAGEvaluationSetup(
-        embedder=embedder_config,
+        embedder=EmbedderConfig(
+            model_name="Octen/Octen-Embedding-8B"
+        ),
         chunker=DoublePassMergingChunkerConfig(),
         vector_store=QdrantVectorStoreConfig(
             backend=QdrantConfig()
         ),
         rag=RAGPipelineConfig(),
-        generator=generator_config,
+        generator=OllamaTextGeneratorConfig(
+            model_name="qwen3.5:9b",
+            backend=OllamaBackendConfig(),
+            max_new_tokens=4096,
+        ),
         source_retriever=SourceRetrieverConfig(
             modality=Modality.TEXT
         ),
         qa_retriever=QARetrieverConfig()
     )
 
-    rag_evaluator = RAGEvaluator(
+    rag_experiment_runner = RAGExperimentRunner(
         config=RAGEvaluatorConfig(),
-        embedder=embedder,
-        generator=generator
     )
 
-    experiment = rag_evaluator.run(setup=setup, num_samples=2)
+    experiment = rag_experiment_runner.run_single_experiment(setup=setup, num_samples=2)
     experiment.to_json(path / "one_experiment_result.json")
     experiment.save_markdown(path / "one_experiment_result_md.md")
 
+def test_multiple_experiments(path:Path):
+
+    from src.evaluator import (
+        RAGEvaluationSetup,
+        RAGExperimentRunner,
+    )
+
+    from src.configs import (
+        RAGEvaluatorConfig,
+        EmbedderConfig,
+        DoublePassMergingChunkerConfig,
+        QdrantVectorStoreConfig,
+        QdrantConfig,
+        RAGPipelineConfig,
+        OllamaBackendConfig,
+        OllamaTextGeneratorConfig,
+        SourceRetrieverConfig,
+        QARetrieverConfig,
+    )
+
+    from src.utility import Modality
+
+    embedding_names = [
+        "nvidia/llama-embed-nemotron-8b",
+        "Octen/Octen-Embedding-8B",
+        "codefuse-ai/F2LLM-v2-8B",
+    ]
+
+    modalities = [
+        Modality.TEXT,
+        Modality.TEXT_TABLE,
+        Modality.TEXT_IMAGE,
+        Modality.TEXT_TABLE_IMAGE,
+    ]
+
+    setups = [
+        RAGEvaluationSetup(
+            embedder=EmbedderConfig(
+                model_name=embedding_name,
+            ),
+            chunker=DoublePassMergingChunkerConfig(),
+            vector_store=QdrantVectorStoreConfig(
+                backend=QdrantConfig(),
+            ),
+            rag=RAGPipelineConfig(),
+            generator=OllamaTextGeneratorConfig(
+                model_name="qwen3.5:9b",
+                backend=OllamaBackendConfig(),
+                max_new_tokens=4096,
+            ),
+            source_retriever=SourceRetrieverConfig(
+                modality=modality,
+            ),
+            qa_retriever=QARetrieverConfig(),
+        )
+        for embedding_name in embedding_names
+        for modality in modalities
+    ]
+
+    rag_experiment_runner = RAGExperimentRunner(
+        config=RAGEvaluatorConfig(),
+    )
+    
+    experiments = rag_experiment_runner.run_multiple_experiments(setups=setups, num_samples=2)
+    experiments.to_json(path / "multiple_experiment_result.json")
+    experiments.save_markdown(path / "multiple_experiment_result_md.md")
+
 if __name__ == "__main__":
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    print(f"Start testing, time: {timestamp}")
     # test_qa_retriever(runtime())
     # test_dpmc(runtime())
     # asyncio.run(test_apdfs_processor(runtime()))
     # test_rag_pipeline(runtime())
     # test_rag_evaluator(runtime())
-    print("start testing")
-    test_experiment(runtime())
+    test_multiple_experiments(runtime())

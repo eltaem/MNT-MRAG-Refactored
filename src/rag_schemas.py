@@ -294,7 +294,7 @@ class RAGEvaluationRun(BaseEvaluationArtifact):
             f"- **Chunker:** `{self.setup.chunker.name}`"
         )
         lines.append(
-            f"- **Generator:** `{self.setup.generator.name}`"
+            f"- **Generator:** `{self.setup.generator.model_name}`"
         )
 
         lines.append("\n---\n")
@@ -404,7 +404,7 @@ class BenchmarkResult(BaseEvaluationArtifact):
                 f"| {display_embedder} | "
                 f"{setup.source_retriever.modality.display_name} | "
                 f"{display_chunker} | "
-                f"{setup.generator.name} | "
+                f"{setup.generator.model_name} | "
                 f"{metrics.bleu:.4f} | "
                 f"{metrics.rouge1:.4f} | "
                 f"{metrics.rouge2:.4f} | "

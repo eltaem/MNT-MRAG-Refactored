@@ -1,0 +1,422 @@
+from __future__ import annotations
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Any, Self
+
+from statistics import mean
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+from src.configs import (
+    BaseChunkerConfig,
+    BaseTextGeneratorConfig,
+    BaseVectorStoreConfig,
+    EmbedderConfig,
+    QARetrieverConfig,
+    RAGPipelineConfig,
+    SourceRetrieverConfig,
+)
+from src.utility import escape_md, generate_collection_name, load_model, load_models, save_model, save_models
+
+class BaseEvaluationArtifact(
+    BaseModel,
+    ABC,
+):
+
+    model_config = ConfigDict(
+        frozen=True,
+        extra="forbid",
+    )
+
+    @abstractmethod
+    def to_markdown(self) -> str:
+        """
+        Render this artifact as Markdown.
+        """
+        ...
+
+    def to_json(
+        self,
+        path: str | Path,
+    ) -> None:
+
+        save_model(
+            self,
+            path,
+        )
+
+    @classmethod
+    def from_json(
+        cls,
+        path: str | Path,
+    ) -> Self:
+
+        return load_model(
+            cls,
+            path,
+        )
+
+    def save_markdown(
+        self,
+        path: str | Path,
+    ) -> None:
+
+        path = Path(path)
+
+        path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        path.write_text(
+            self.to_markdown(),
+            encoding="utf-8",
+        )
+
+class BaseSample(
+    BaseModel,
+    ABC,
+):
+
+    @classmethod
+    def from_json(
+        cls,
+        path: str | Path,
+    ) -> list[Self]:
+
+        return load_models(
+            cls,
+            path,
+        )
+
+    @staticmethod
+    def to_json(
+        samples: list[Self],
+        path: str | Path,
+    ) -> Path:
+
+        return save_models(
+            samples,
+            path,
+        )
+
+
+class RAGEvaluationSample(BaseSample):
+
+    qa_id: str
+
+    question: str
+
+    ground_truth: str
+
+    retrieved_chunks: list[str]
+
+    generated_answer: str
+
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+class RAGMetrics(BaseModel):
+
+    # =====================================================
+    # Lexical Metrics
+    # =====================================================
+
+    bleu: float
+
+    rouge1: float
+
+    rouge2: float
+
+    rougeL: float
+
+    # =====================================================
+    # RAGAS Metrics
+    # =====================================================
+
+    context_precision: float
+
+    context_recall: float
+
+    faithfulness: float
+
+    answer_relevancy: float
+
+    semantic_similarity: float
+
+class RAGEvaluationResult(BaseEvaluationArtifact):
+
+    sample: RAGEvaluationSample
+
+    metrics: RAGMetrics
+
+    def to_markdown(self) -> str:
+        """Generate markdown report for a single RAG evaluation result."""
+        lines: list[str] = []
+
+        # ─── Header ───
+        lines.append(f"## Question: {self.sample.qa_id}\n")
+
+        # ─── Question & Answers ───
+        lines.append("**User Question:**")
+        lines.append(f"\n{escape_md(self.sample.question)}\n")
+        lines.append("\n**Generated Answer:**")
+        lines.append(f"\n{escape_md(self.sample.generated_answer)}\n")
+        lines.append("\n**Ground Truth:**")
+        lines.append(f"\n{escape_md(self.sample.ground_truth)}\n")
+
+        # ─── Retrieved Chunks ───
+        lines.append(f"**Retrieved Chunks ({len(self.sample.retrieved_chunks)}):**\n")
+        for i, chunk in enumerate(self.sample.retrieved_chunks, 1):
+            preview = chunk[:200] + "..." if len(chunk) > 200 else chunk
+            lines.append(f"{i}. {escape_md(preview)}\n")
+        lines.append("")  # blank line
+
+        # ─── Metrics Table ───
+        lines.append("### Evaluation Scores\n")
+        lines.append(
+            "| BLEU | ROUGE-1 | ROUGE-2 | ROUGE-L | "
+            "Context Precision | Context Recall | Faithfulness | Answer Relevancy | Semantic Similarity |"
+        )
+        lines.append(
+            "|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|"
+        )
+        m = self.metrics
+        lines.append(
+            f"| {m.bleu:.4f} | {m.rouge1:.4f} | {m.rouge2:.4f} | {m.rougeL:.4f} | "
+            f"{m.context_precision:.4f} | {m.context_recall:.4f} | {m.faithfulness:.4f} | "
+            f"{m.answer_relevancy:.4f} | {m.semantic_similarity:.4f} |"
+        )
+        lines.append("\n---\n")
+
+        return "\n".join(lines)
+
+class RAGEvaluationSetup(BaseModel):
+
+    embedder: EmbedderConfig
+
+    chunker: BaseChunkerConfig
+
+    vector_store: BaseVectorStoreConfig
+
+    rag: RAGPipelineConfig
+
+    generator: BaseTextGeneratorConfig
+
+    source_retriever: SourceRetrieverConfig
+
+    qa_retriever: QARetrieverConfig
+
+    @computed_field
+    @property
+    def source_collection(self) -> str:
+        return generate_collection_name(
+            "src",
+            self.chunker,
+            self.embedder,
+        )
+
+    @computed_field
+    @property
+    def qa_collection(self) -> str:
+        return generate_collection_name(
+            "qa",
+            self.embedder,
+        )
+
+class RAGEvaluationSummary(BaseModel):
+
+    sample_count: int
+
+    average_metrics: RAGMetrics
+
+class RAGEvaluationRun(BaseEvaluationArtifact):
+
+    setup: RAGEvaluationSetup
+
+    results: list[RAGEvaluationResult]
+
+    @computed_field
+    @property
+    def summary(self) -> RAGEvaluationSummary:
+
+        metrics = [r.metrics for r in self.results]
+
+        if not metrics:
+            return RAGEvaluationSummary(
+                sample_count=0,
+                average_metrics=RAGMetrics(
+                    bleu=0.0,
+                    rouge1=0.0,
+                    rouge2=0.0,
+                    rougeL=0.0,
+                    context_precision=0.0,
+                    context_recall=0.0,
+                    faithfulness=0.0,
+                    answer_relevancy=0.0,
+                    semantic_similarity=0.0,
+                ),
+            )
+
+        return RAGEvaluationSummary(
+            sample_count=len(metrics),
+            average_metrics=RAGMetrics(
+                bleu=mean(m.bleu for m in metrics),
+                rouge1=mean(m.rouge1 for m in metrics),
+                rouge2=mean(m.rouge2 for m in metrics),
+                rougeL=mean(m.rougeL for m in metrics),
+                context_precision=mean(m.context_precision for m in metrics),
+                context_recall=mean(m.context_recall for m in metrics),
+                faithfulness=mean(m.faithfulness for m in metrics),
+                answer_relevancy=mean(m.answer_relevancy for m in metrics),
+                semantic_similarity=mean(m.semantic_similarity for m in metrics),
+            ),
+        )
+    
+    def to_markdown(self) -> str:
+
+        lines: list[str] = []
+
+        lines.append("# RAG Evaluation Report\n")
+
+        # =====================================================
+        # Experiment Setup
+        # =====================================================
+
+        lines.append("## Evaluation Setup\n")
+
+        lines.append(
+            f"- **Embedder:** `{self.setup.embedder.model_name}`"
+        )
+        lines.append(
+            f"- **Modality:** `{self.setup.source_retriever.modality.display_name}`"
+        )
+        lines.append(
+            f"- **Chunker:** `{self.setup.chunker.name}`"
+        )
+        lines.append(
+            f"- **Generator:** `{self.setup.generator.name}`"
+        )
+
+        lines.append("\n---\n")
+
+        # =====================================================
+        # Individual Results
+        # =====================================================
+
+        lines.append("## Individual Results\n")
+
+        if not self.results:
+            lines.append("No evaluation results available.\n")
+        else:
+            for result in self.results:
+                lines.append(result.to_markdown())
+
+        # =====================================================
+        # Aggregate Metrics
+        # =====================================================
+
+        lines.append("## Aggregate Metrics\n")
+
+        metrics = self.summary.average_metrics
+
+        lines.append(
+            "| BLEU | ROUGE-1 | ROUGE-2 | ROUGE-L | "
+            "Context Precision | Context Recall | Faithfulness | "
+            "Answer Relevancy | Semantic Similarity |"
+        )
+
+        lines.append(
+            "|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|"
+        )
+
+        lines.append(
+            f"| {metrics.bleu:.4f} | "
+            f"{metrics.rouge1:.4f} | "
+            f"{metrics.rouge2:.4f} | "
+            f"{metrics.rougeL:.4f} | "
+            f"{metrics.context_precision:.4f} | "
+            f"{metrics.context_recall:.4f} | "
+            f"{metrics.faithfulness:.4f} | "
+            f"{metrics.answer_relevancy:.4f} | "
+            f"{metrics.semantic_similarity:.4f} |"
+        )
+
+        return "\n".join(lines)
+
+class BenchmarkResult(BaseEvaluationArtifact):
+
+    runs: list[RAGEvaluationRun]
+
+    def to_markdown(self) -> str:
+
+        lines: list[str] = []
+
+        lines.append("# RAG Benchmark Report\n")
+
+        if not self.runs:
+            lines.append("No evaluation runs available.\n")
+            return "\n".join(lines)
+
+        lines.append(
+            f"**Total Experiments:** {len(self.runs)}\n"
+        )
+
+        lines.append("## Experiment Comparison\n")
+
+        lines.append(
+            "| Embedder | Modality | Chunker | Generator | "
+            "BLEU | ROUGE-1 | ROUGE-2 | ROUGE-L | "
+            "Context Precision | Context Recall | Faithfulness | "
+            "Answer Relevancy | Semantic Similarity |"
+        )
+
+        lines.append(
+            "|:---|:---|:---|:---|"
+            ":---:|:---:|:---:|:---:|"
+            ":---:|:---:|:---:|:---:|:---:|"
+        )
+
+        previous_embedder: str | None = None
+        previous_chunker: str | None = None
+
+        for run in self.runs:
+
+            setup = run.setup
+            metrics = run.summary.average_metrics
+
+            embedder = setup.embedder.model_name
+            chunker = setup.chunker.name
+
+            # Only display when the value changes.
+            display_embedder = (
+                embedder
+                if embedder != previous_embedder
+                else ""
+            )
+
+            display_chunker = (
+                chunker
+                if chunker != previous_chunker
+                else ""
+            )
+
+            lines.append(
+                f"| {display_embedder} | "
+                f"{setup.source_retriever.modality.display_name} | "
+                f"{display_chunker} | "
+                f"{setup.generator.name} | "
+                f"{metrics.bleu:.4f} | "
+                f"{metrics.rouge1:.4f} | "
+                f"{metrics.rouge2:.4f} | "
+                f"{metrics.rougeL:.4f} | "
+                f"{metrics.context_precision:.4f} | "
+                f"{metrics.context_recall:.4f} | "
+                f"{metrics.faithfulness:.4f} | "
+                f"{metrics.answer_relevancy:.4f} | "
+                f"{metrics.semantic_similarity:.4f} |"
+            )
+
+            previous_embedder = embedder
+            previous_chunker = chunker
+
+        return "\n".join(lines)

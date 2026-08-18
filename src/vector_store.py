@@ -30,7 +30,6 @@ class SearchResult(BaseModel):
 
     embedding: list[float] | None = None
 
-
 class BaseVectorStore(ABC):
 
     def __init__(

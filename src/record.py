@@ -25,8 +25,8 @@ class BaseRecord(
     ) -> list[Self]:
 
         return load_models(
-            path,
             cls,
+            path,
         )
 
     @staticmethod

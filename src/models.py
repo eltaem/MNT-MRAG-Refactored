@@ -6,10 +6,10 @@ from typing import Any, Type, TypeVar
 import json
 import logging
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from transformers import pipeline
 
-from src.utility import clean_text, serialize_table
+from src.utility import clean_text, serialize_table, logger, extract_json_object
 from src.configs import BaseConfig, BaseImageCaptioningConfig, BasePretrainedConfig, BaseCaptioningConfig, BaseTableCaptioningConfig, BaseTextGeneratorConfig, OllamaImageCaptioningConfig, OllamaTableCaptioningConfig, OllamaTextGeneratorConfig, TransformerImageCaptioningConfig
 InstructorTypeVar = TypeVar("T", bound=BaseModel)
 import ollama
@@ -223,6 +223,16 @@ class BaseTextGeneratorModel(BasePretrainedModel):
         **kwargs,
     ) -> InstructorTypeVar:
         ...
+    
+    def _validate_response(
+        self,
+        response_model: type[InstructorTypeVar],
+        text: str,
+    ) -> InstructorTypeVar:
+
+        obj = extract_json_object(text)
+
+        return response_model.model_validate(obj)
 
 class BaseImageCaptioningModel(BaseCaptioningModel):
     def __init__(
@@ -471,7 +481,11 @@ class OllamaTextGenerator(
     def load_pretrained(
         self,
     ) -> None:
-
+        
+        if self.is_loaded:
+            logger.warning(f"Pretrained model ({self.config.model_name}) is already initialized!")
+            return
+        
         self._client = ollama.Client(
             host=self.config.backend.host,
         )
@@ -555,6 +569,82 @@ class OllamaTextGenerator(
 
         return model
     
+    def _generate_structured_retry(
+        self,
+        prompt: str,
+        response_model: type[InstructorTypeVar],
+        system_prompt: str,
+        **kwargs,
+    ) -> InstructorTypeVar:
+
+        last_error: Exception | None = None
+
+        for model_attempt in range(1, self.config.max_retry + 1):
+
+            response = self._client.chat(
+                model=self.config.model_name,
+                think=self.config.backend.think,
+                # format=response_model.model_json_schema(),
+                format='json',
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt,
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    },
+                ],
+                options={
+                    "temperature": kwargs.get(
+                        "temperature",
+                        self.config.temperature,
+                    ),
+                    "top_p": kwargs.get(
+                        "top_p",
+                        self.config.top_p,
+                    ),
+                    "num_predict": kwargs.get(
+                        "max_new_tokens",
+                        self.config.max_new_tokens,
+                    ),
+                },
+            )
+
+            logger.info(
+                "Attempt %d/%d | done_reason=%s prompt_tokens=%s output_tokens=%s",
+                model_attempt,
+                self.config.max_retry,
+                response.done_reason,
+                response.prompt_eval_count,
+                response.eval_count,
+            )
+
+            try:
+                return self._validate_response(
+                    response_model=response_model,
+                    text=response.message.content,
+                )
+
+            except Exception as e:
+
+                logger.warning(
+                    "Structured parsing failed (%d/%d): %s",
+                    model_attempt,
+                    self.config.max_retry,
+                    e,
+                )
+
+                logger.warning(
+                    "Raw model output:\n%s",
+                    response.message.content,
+                )
+
+                last_error = e
+
+        raise last_error
+
     def generate_structured(
         self,
         prompt: str,
@@ -572,40 +662,89 @@ class OllamaTextGenerator(
                 )
             )
 
-        response:ollama.ChatResponse = self._client.chat(
-            model=self.config.model_name,
-            think=self.config.backend.think,
-            format=response_model.model_json_schema(),
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            options={
-                "temperature": kwargs.get(
-                    "temperature",
-                    self.config.temperature,
-                ),
-                "top_p": kwargs.get(
-                    "top_p",
-                    self.config.top_p,
-                ),
-                "num_predict": kwargs.get(
-                    "max_new_tokens",
-                    self.config.max_new_tokens,
-                ),
-            },
-        )
-
-        return response_model.model_validate_json(
-            response.message.content,
+        return self._generate_structured_retry(
+            prompt=prompt,
+            response_model=response_model,
+            system_prompt=system_prompt,
+            **kwargs,
         )
     
+    async def _agenerate_structured_retry(
+        self,
+        prompt: str,
+        response_model: type[InstructorTypeVar],
+        system_prompt: str,
+        **kwargs,
+    ) -> InstructorTypeVar:
+
+        last_error: Exception | None = None
+
+        for model_attempt in range(1, self.config.max_retry + 1):
+
+            response = await self._aclient.chat(
+                model=self.config.model_name,
+                think=self.config.backend.think,
+                # format=response_model.model_json_schema(),
+                format='json',
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt,
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    },
+                ],
+                options={
+                    "temperature": kwargs.get(
+                        "temperature",
+                        self.config.temperature,
+                    ),
+                    "top_p": kwargs.get(
+                        "top_p",
+                        self.config.top_p,
+                    ),
+                    "num_predict": kwargs.get(
+                        "max_new_tokens",
+                        self.config.max_new_tokens,
+                    ),
+                },
+            )
+
+            logger.info(
+                "Attempt %d/%d | done_reason=%s prompt_tokens=%s output_tokens=%s",
+                model_attempt,
+                self.config.max_retry,
+                response.done_reason,
+                response.prompt_eval_count,
+                response.eval_count,
+            )
+
+            try:
+                return self._validate_response(
+                    response_model=response_model,
+                    text=response.message.content,
+                )
+
+            except Exception as e:
+
+                logger.warning(
+                    "Structured parsing failed (%d/%d): %s",
+                    model_attempt,
+                    self.config.max_retry,
+                    e,
+                )
+
+                logger.warning(
+                    "Raw model output:\n%s",
+                    response.message.content,
+                )
+
+                last_error = e
+
+        raise last_error
+
     async def agenerate_structured(
         self,
         prompt: str,
@@ -623,36 +762,9 @@ class OllamaTextGenerator(
                 )
             )
 
-        response:ollama.ChatResponse = await self._aclient.chat(
-            model=self.config.model_name,
-            think=self.config.backend.think,
-            format=response_model.model_json_schema(),
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            options={
-                "temperature": kwargs.get(
-                    "temperature",
-                    self.config.temperature,
-                ),
-                "top_p": kwargs.get(
-                    "top_p",
-                    self.config.top_p,
-                ),
-                "num_predict": kwargs.get(
-                    "max_new_tokens",
-                    self.config.max_new_tokens,
-                ),
-            },
-        )
-
-        return response_model.model_validate_json(
-            response.message.content,
+        return await self._agenerate_structured_retry(
+            prompt=prompt,
+            response_model=response_model,
+            system_prompt=system_prompt,
+            **kwargs,
         )

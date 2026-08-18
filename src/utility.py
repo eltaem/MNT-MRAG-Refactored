@@ -1,12 +1,12 @@
 from __future__ import annotations
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 import gc
 import json
 import re
 import hashlib
 from pathlib import Path
 import uuid
-from typing import Any, Protocol, TypeAlias, TypeVar
+from typing import Any, Literal, Protocol, Sequence, TypeAlias, TypeVar
 import fitz
 from typing import TYPE_CHECKING
 import logging
@@ -201,11 +201,15 @@ T = TypeVar("T", bound=BaseModel)
 # Single model
 # ==========================================================
 
-def save_model(
-    model: BaseModel,
-    path: str | Path,
-) -> Path:
+def save_model(model: BaseModel, path: str | Path) -> Path:
+    """
+    Save a single Pydantic model to a JSON file.
 
+    Returns
+    -------
+    Path
+        The path of the saved file.
+    """
     path = Path(path)
 
     path.parent.mkdir(
@@ -214,73 +218,148 @@ def save_model(
     )
 
     path.write_text(
-        json.dumps(
-            model.model_dump(
-                mode="json",
-            ),
-            indent=4,
-            ensure_ascii=False,
-        ),
+        model.model_dump_json(indent=4),
         encoding="utf-8",
     )
 
     return path
 
 
-def load_model(
-    path: str | Path,
-    model_cls: type[T],
-) -> T:
+def load_model(model_cls: type[T], path: str | Path) -> T:
+    """
+    Load a single Pydantic model from a JSON file.
 
-    payload = load_json(path)
+    Returns
+    -------
+    T
+        An instance of the specified Pydantic model subclass.
+    """
+    path = Path(path)
 
-    return model_cls.model_validate(
-        payload,
+    return model_cls.model_validate_json(
+        path.read_text(encoding="utf-8")
     )
 
 def save_models(
-    models: list[BaseModel],
+    models: Sequence[BaseModel],
     path: str | Path,
+    *,
+    mode: Literal["single", "directory"] = "single",
 ) -> Path:
+    """
+    Save multiple Pydantic models.
 
+    Parameters
+    ----------
+    models
+        Models to save.
+    path
+        Output file (single mode) or output directory (directory mode).
+    mode
+        - "single": save all models into one JSON array.
+        - "directory": save each model into its own JSON file.
+
+    Returns
+    -------
+    Path
+        The file or directory written to.
+    """
     path = Path(path)
 
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    match mode:
+        case "single":
+            if path.exists() and path.is_dir():
+                raise ValueError(
+                    f"Expected a file path, got directory: {path}"
+                )
 
-    payload = [
-        model.model_dump(
-            mode="json",
-        )
-        for model in models
-    ]
+            path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
 
-    path.write_text(
-        json.dumps(
-            payload,
-            indent=4,
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
+            payload = [
+                model.model_dump(mode="json")
+                for model in models
+            ]
+
+            path.write_text(
+                json.dumps(
+                    payload,
+                    indent=4,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+        case "directory":
+            if path.exists() and path.is_file():
+                raise ValueError(
+                    f"Expected a directory path, got file: {path}"
+                )
+
+            path.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            for index, model in enumerate(models):
+                save_model(
+                    model,
+                    path / f"{index}.json",
+                )
 
     return path
 
 
 def load_models(
-    path: str | Path,
     model_cls: type[T],
+    path: str | Path,
 ) -> list[T]:
+    """
+    Load multiple Pydantic models.
 
+    If `path` is a JSON file, it is assumed to contain a JSON array of models.
+
+    If `path` is a directory, every '*.json' file inside it is loaded.
+
+    Returns
+    -------
+    list[T]
+        Loaded model instances.
+    """
     path = Path(path)
 
-    payload = load_json(path)
+    if not path.exists():
+        return []
+
+    if path.is_file():
+        payload = json.loads(
+            path.read_text(encoding="utf-8")
+        )
+
+        if not isinstance(payload, list):
+            raise ValueError(
+                "Expected a JSON array when loading multiple models."
+            )
+
+        return [
+            model_cls.model_validate(item)
+            for item in payload
+        ]
+
+    json_files = sorted(
+        path.glob("*.json"),
+        key=lambda p: (
+            int(p.stem)
+            if p.stem.isdigit()
+            else p.stem
+        ),
+    )
 
     return [
-        model_cls.model_validate(item)
-        for item in payload
+        load_model(model_cls, file_path)
+        for file_path in json_files
     ]
 
 def load_json(
@@ -320,3 +399,58 @@ def sanitize_name(value: str) -> str:
         .replace("\\", "-")
         .replace(" ", "_")
     )
+
+def extract_json_object(
+    text: str,
+) -> dict[str, Any]:
+
+    text = text.strip()
+
+    if text.startswith("```"):
+        text = re.sub(
+            r"^```(?:json)?\s*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            r"\s*```$",
+            "",
+            text,
+        ).strip()
+
+    decoder = json.JSONDecoder()
+
+    for opener in ("{", "["):
+        start = text.find(opener)
+
+        if start == -1:
+            continue
+
+        try:
+            obj, _ = decoder.raw_decode(
+                text[start:],
+            )
+            return obj
+
+        except json.JSONDecodeError:
+            continue
+
+    raise ValueError(
+        "No valid JSON object found in model output.",
+    )
+
+class Modality(StrEnum):
+    TEXT = "text"
+    TEXT_TABLE = "text_table"
+    TEXT_IMAGE = "text_image"
+    TEXT_TABLE_IMAGE = "text_table_image"
+
+    @property
+    def display_name(self) -> str:
+        return self.value.replace("_", " + ")
+
+def escape_md(text: str) -> str:
+    """Escape markdown-sensitive characters in raw text."""
+    # Escape backticks, pipes, and newlines for code blocks
+    return text.replace("`", "\\`").replace("|", "\\|")

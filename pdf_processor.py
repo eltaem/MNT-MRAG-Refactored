@@ -258,20 +258,20 @@ async def process_pdfs():
                 ),
             ),
         ],
-        # enrichers=[
-        #     ImageCaptionEnricher(
-        #         ImageCaptionEnricherConfig(
-        #             batch_size=2,
-        #         ),
-        #         image_captioning_model,
-        #     ),
-        #     TableCaptionEnricher(
-        #         TableCaptionEnricherConfig(
-        #             batch_size=2,
-        #         ),
-        #         table_captioning_model,
-        #     ),
-        # ],
+        enrichers=[
+            ImageCaptionEnricher(
+                ImageCaptionEnricherConfig(
+                    batch_size=2,
+                ),
+                image_captioning_model,
+            ),
+            TableCaptionEnricher(
+                TableCaptionEnricherConfig(
+                    batch_size=2,
+                ),
+                table_captioning_model,
+            ),
+        ],
     )
 
     # ======================================================
@@ -279,7 +279,7 @@ async def process_pdfs():
     # ======================================================
 
     pdf_paths = collect_pdfs(
-        STORAGE_CONFIG.test_dir,
+        STORAGE_CONFIG.source_dir,
     )
 
     logger.info(

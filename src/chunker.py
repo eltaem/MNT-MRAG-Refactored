@@ -172,8 +172,8 @@ class BaseChunker(ABC):
     ) -> list[Chunk]:
 
         return load_models(
-            path,
             Chunk,
+            path,
         )
 
 class BaseSemanticChunker(ABC):
@@ -224,8 +224,8 @@ class BaseSemanticChunker(ABC):
     ) -> list[ChunkRecord]:
 
         return load_models(
-            path,
             ChunkRecord,
+            path,
         )
 
 class DoublePassMergingChunker(

@@ -7,6 +7,7 @@ from sentence_transformers import SentenceTransformer
 from langchain_core.embeddings import Embeddings
 from ragas.embeddings.base import BaseRagasEmbedding
 from llama_index.core.embeddings import BaseEmbedding
+from llama_index.core.callbacks.base import CallbackManager
 from src.configs import EmbedderConfig
 from src.utility import clear_gpu
 
@@ -46,7 +47,7 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
         config: EmbedderConfig,
         **kwargs,
     ):
-
+        # internal
         object.__setattr__(self, "modele", None)
 
         object.__setattr__(self, "config", config)
@@ -55,6 +56,14 @@ class Embedder(Embeddings, BaseRagasEmbedding, BaseEmbedding):
 
         object.__setattr__(self, "_full_dimension", -1)
         
+        # llama:
+        object.__setattr__(self, "model_name", config.model_name)
+        object.__setattr__(self, "embed_batch_size", config.batch_size)
+        object.__setattr__(self, "callback_manager", CallbackManager([]))
+        object.__setattr__(self, "num_workers", None)
+        object.__setattr__(self, "embeddings_cache", None)
+        object.__setattr__(self, "rate_limiter", None)
+
         clear_gpu()
 
     # =========================================================

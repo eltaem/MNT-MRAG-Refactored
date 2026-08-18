@@ -11,7 +11,7 @@ from pydantic import (
     computed_field,
 )
 
-from src.utility import BBox, deterministic_uuid
+from src.utility import BBox, Modality, deterministic_uuid
 
 NODE_REGISTRY: dict[str, type[BaseNode]] = {}
 
@@ -192,3 +192,25 @@ class TableNode(BaseNode):
             len(row)
             for row in self.rows
         )
+
+MODALITY_NODE_TYPES: dict[Modality, set[str]] = {
+    Modality.TEXT: {
+        TextNode.NODE_TYPE,
+    },
+
+    Modality.TEXT_TABLE: {
+        TextNode.NODE_TYPE,
+        TableNode.NODE_TYPE,
+    },
+
+    Modality.TEXT_IMAGE: {
+        TextNode.NODE_TYPE,
+        ImageNode.NODE_TYPE,
+    },
+
+    Modality.TEXT_TABLE_IMAGE: {
+        TextNode.NODE_TYPE,
+        TableNode.NODE_TYPE,
+        ImageNode.NODE_TYPE,
+    },
+}

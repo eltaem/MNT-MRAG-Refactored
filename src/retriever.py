@@ -6,6 +6,7 @@ from src.record import BaseRecord
 from src.chunker import ChunkRecord
 from src.configs import BaseRetrieverConfig, DenseRetrieverConfig, QARetrieverConfig, SourceRetrieverConfig
 from src.vector_store import BaseVectorStore
+from src.nodes import MODALITY_NODE_TYPES
 
 RecordT = TypeVar("RecordT", bound=BaseRecord,)
 
@@ -117,6 +118,60 @@ class SourceRetriever(
             vector_store=vector_store,
             collection_name=collection_name,
             record_type=ChunkRecord,
+        )
+
+        self.config = config
+    
+    def _build_source_filters(
+        self,
+    ) -> dict[str, Any] | None:
+
+        if self.config.modality is None:
+            return None
+
+        return {
+            "chunk.node_type": list(
+                MODALITY_NODE_TYPES[
+                    self.config.modality
+                ]
+            ),
+        }
+    
+    def _merge_source_filters(
+        self,
+        filters: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+
+        source_filters = self._build_source_filters()
+
+        if source_filters is None:
+            return filters
+
+        return {
+            **(filters or {}),
+            **source_filters,
+        }
+
+    def scroll(
+        self,
+        limit: int | None = None,
+        filters: dict[str, Any] | None = None,
+    ) -> list[ChunkRecord]:
+
+        return super().scroll(
+            limit=limit,
+            filters=self._merge_source_filters(filters),
+        )
+    
+    def retrieve(
+        self,
+        query: list[float],
+        filters: dict[str, Any] | None = None,
+    ) -> list[ChunkRecord]:
+
+        return super().retrieve(
+            query=query,
+            filters=self._merge_source_filters(filters),
         )
 
 class QARetriever(

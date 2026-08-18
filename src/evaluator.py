@@ -1,19 +1,19 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
-from pathlib import Path
-from typing import Any, Generic, Self, TypeVar
+from typing import Generic, TypeVar
 import sacrebleu
 from rouge_score import rouge_scorer
-from src.utility import logger
-
-from numpy import mean
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    computed_field
+from src.rag_schemas import (
+    BaseEvaluationArtifact,
+    RAGEvaluationResult,
+    RAGEvaluationRun,
+    RAGEvaluationSample,
+    RAGEvaluationSetup,
+    RAGMetrics,
 )
+from src.rag_pipeline import RAGPipeline
+from src.utility import logger
 
 from src.ragas_adapter import RAGASLLMAdapter
 from ragas.metrics.collections import (
@@ -27,78 +27,13 @@ from ragas.metrics.collections import (
 from src.models import BaseTextGeneratorModel
 from src.embedder import Embedder
 from src.configs import (
-    BaseChunkerConfig,
     BaseEvaluatorConfig,
-    BaseRetrieverConfig,
-    BaseTextGeneratorConfig,
-    EmbedderConfig,
-    RAGEvaluatorConfig
+    RAGEvaluatorConfig,
 )
-
-from src.utility import (
-    generate_collection_name,
-    load_model,
-    load_models,
-    save_model,
-    save_models
-)
-
-class BaseEvaluationResult(BaseModel, ABC):
-
-    model_config = ConfigDict(
-        frozen=True,
-        extra="forbid",
-    )
-
-    @abstractmethod
-    def to_markdown(self) -> str:
-        ...
-
-    def to_json(
-        self,
-        path: str | Path,
-    ) -> Path:
-
-        return save_model(
-            self,
-            path,
-        )
-
-    @classmethod
-    def from_json(
-        cls,
-        path: str | Path,
-    ):
-        return load_model(
-            path,
-            cls,
-        )
-
-    def save(
-        self,
-        directory: str | Path,
-    ) -> Path:
-
-        directory = Path(directory)
-        directory.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        self.to_json(
-            directory / "metrics.json"
-        )
-
-        (directory / "report.md").write_text(
-            self.to_markdown(),
-            encoding="utf-8",
-        )
-
-        return directory
 
 ResultT = TypeVar(
     "ResultT",
-    bound=BaseEvaluationResult,
+    bound=BaseEvaluationArtifact,
 )
 
 class BaseEvaluator(
@@ -127,151 +62,6 @@ class BaseEvaluator(
         **kwargs,
     ) -> list[ResultT]:
         ...
-
-
-class BaseSample(
-    BaseModel,
-    ABC,
-):
-
-    @classmethod
-    def from_json(
-        cls,
-        path: str | Path,
-    ) -> list[Self]:
-
-        return load_models(
-            path,
-            cls,
-        )
-
-    @staticmethod
-    def to_json(
-        samples: list[Self],
-        path: str | Path,
-    ) -> Path:
-
-        return save_models(
-            samples,
-            path,
-        )
-
-
-class RAGEvaluationSample(BaseSample):
-
-    qa_id: str
-
-    question: str
-
-    ground_truth: str
-
-    retrieved_chunks: list[str]
-
-    generated_answer: str
-
-    metadata: dict[str, Any] = Field(
-        default_factory=dict,
-    )
-
-class RAGMetrics(BaseModel):
-
-    # =====================================================
-    # Lexical Metrics
-    # =====================================================
-
-    bleu: float
-
-    rouge1: float
-
-    rouge2: float
-
-    rougeL: float
-
-    # =====================================================
-    # RAGAS Metrics
-    # =====================================================
-
-    context_precision: float
-
-    context_recall: float
-
-    faithfulness: float
-
-    answer_relevancy: float
-
-    semantic_similarity: float
-
-class RAGEvaluationResult(BaseEvaluationResult):
-
-    sample: RAGEvaluationSample
-
-    metrics: RAGMetrics
-
-class RAGEvaluationSetup(BaseModel):
-
-    embedder: EmbedderConfig
-
-    chunker: BaseChunkerConfig
-
-    generator: BaseTextGeneratorConfig
-
-    source_retriever: BaseRetrieverConfig
-
-    qa_retriever: BaseRetrieverConfig
-
-    @computed_field
-    @property
-    def source_collection(self) -> str:
-        return generate_collection_name(
-            "src",
-            self.chunker,
-            self.embedder,
-        )
-
-    @computed_field
-    @property
-    def qa_collection(self) -> str:
-        return generate_collection_name(
-            "qa",
-            self.embedder,
-        )
-
-class RAGEvaluationSummary(BaseModel):
-
-    sample_count: int
-
-    average_metrics: RAGMetrics
-
-class RAGEvaluationRun(BaseModel):
-
-    setup: RAGEvaluationSetup
-
-    results: list[RAGEvaluationResult]
-
-    @computed_field
-    @property
-    def summary(self) -> RAGEvaluationSummary:
-
-        metrics = [r.metrics for r in self.results]
-
-        return RAGEvaluationSummary(
-            sample_count=len(metrics),
-            average_metrics=RAGMetrics(
-                bleu=mean(m.bleu for m in metrics),
-                rouge1=mean(m.rouge1 for m in metrics),
-                rouge2=mean(m.rouge2 for m in metrics),
-                rougeL=mean(m.rougeL for m in metrics),
-                context_precision=mean(m.context_precision for m in metrics),
-                context_recall=mean(m.context_recall for m in metrics),
-                faithfulness=mean(m.faithfulness for m in metrics),
-                answer_relevancy=mean(m.answer_relevancy for m in metrics),
-                semantic_similarity=mean(m.semantic_similarity for m in metrics),
-            ),
-        )
-
-class BenchmarkResult(BaseModel):
-
-    runs: list[RAGEvaluationRun]
 
 class RAGEvaluator(
     BaseEvaluator[RAGEvaluationResult],
@@ -331,43 +121,40 @@ class RAGEvaluator(
         sample: RAGEvaluationSample,
     ) -> dict[str, float]:
 
-        (
-            faithfulness,
-            answer_relevancy,
-            semantic_similarity,
-            context_precision,
-            context_recall,
-        ) = await asyncio.gather(
-
-            self.faithfulness.ascore(
-                user_input=sample.question,
-                response=sample.generated_answer,
-                retrieved_contexts=sample.retrieved_chunks,
-            ),
-
-            self.answer_relevancy.ascore(
-                user_input=sample.question,
-                response=sample.generated_answer,
-            ),
-
-            self.semantic_similarity.ascore(
-                reference=sample.ground_truth,
-                response=sample.generated_answer,
-            ),
-
-            self.context_precision.ascore(
-                user_input=sample.question,
-                reference=sample.ground_truth,
-                retrieved_contexts=sample.retrieved_chunks,
-            ),
-
-            self.context_recall.ascore(
-                user_input=sample.question,
-                retrieved_contexts=sample.retrieved_chunks,
-                reference=sample.ground_truth,
-            ),
+        logger.debug("Computing Faithfulness for QA sample '%s'...", sample.qa_id)
+        faithfulness = await self.faithfulness.ascore(
+            user_input=sample.question,
+            response=sample.generated_answer,
+            retrieved_contexts=sample.retrieved_chunks,
         )
 
+        logger.debug("Computing Answer Relevancy for QA sample '%s'...", sample.qa_id)
+        answer_relevancy = await self.answer_relevancy.ascore(
+            user_input=sample.question,
+            response=sample.generated_answer,
+        )
+
+        logger.debug("Computing Semantic Similarity for QA sample '%s'...", sample.qa_id)
+        semantic_similarity = await self.semantic_similarity.ascore(
+            reference=sample.ground_truth,
+            response=sample.generated_answer,
+        )
+
+        logger.debug("Computing Context Precision for QA sample '%s'...", sample.qa_id)
+        context_precision = await self.context_precision.ascore(
+            user_input=sample.question,
+            reference=sample.ground_truth,
+            retrieved_contexts=sample.retrieved_chunks,
+        )
+
+        logger.debug("Computing Context Recall for QA sample '%s'...", sample.qa_id)
+        context_recall = await self.context_recall.ascore(
+            user_input=sample.question,
+            retrieved_contexts=sample.retrieved_chunks,
+            reference=sample.ground_truth,
+        )
+
+        logger.debug("Finished RAGAS Metrics for QA sample '%s'", sample.qa_id)
         return {
             "context_precision": context_precision.value,
             "context_recall": context_recall.value,
@@ -417,7 +204,7 @@ class RAGEvaluator(
         ragas_metrics: dict[str, float],
         classical_metrics: dict[str, float],
     ) -> RAGMetrics:
-
+        
         return RAGMetrics(
 
             bleu=classical_metrics["bleu"],
@@ -451,10 +238,10 @@ class RAGEvaluator(
         )
 
     # =====================================================
-    # Public API
+    # Internal Async API
     # =====================================================
 
-    def evaluate(
+    async def _evaluate(
         self,
         sample: RAGEvaluationSample,
     ) -> RAGEvaluationResult:
@@ -469,23 +256,32 @@ class RAGEvaluator(
             sample.question,
         )
 
-        logger.debug(
-            "Running RAGAS metrics.",
-        )
-
-        ragas_metrics = asyncio.run(
-            self._compute_ragas_metrics(
-                sample,
-            )
-        )
+        # -------------------------------------------------
+        # RAGAS
+        # -------------------------------------------------
 
         logger.debug(
-            "RAGAS metrics: %s",
+            "Running RAGAS metrics for QA '%s'.",
+            sample.qa_id,
+        )
+
+        ragas_metrics = await self._compute_ragas_metrics(
+            sample,
+        )
+
+        logger.debug(
+            "RAGAS metrics for QA '%s': %s",
+            sample.qa_id,
             ragas_metrics,
         )
 
+        # -------------------------------------------------
+        # Classical metrics
+        # -------------------------------------------------
+
         logger.debug(
-            "Running BLEU and ROUGE.",
+            "Running BLEU and ROUGE for QA '%s'.",
+            sample.qa_id,
         )
 
         classical_metrics = self._compute_bleu_rouge(
@@ -493,9 +289,14 @@ class RAGEvaluator(
         )
 
         logger.debug(
-            "Classical metrics: %s",
+            "Classical metrics for QA '%s': %s",
+            sample.qa_id,
             classical_metrics,
         )
+
+        # -------------------------------------------------
+        # Build result
+        # -------------------------------------------------
 
         metrics = self._build_metrics(
             ragas_metrics,
@@ -514,7 +315,8 @@ class RAGEvaluator(
 
         return result
 
-    def evaluate_many(
+
+    async def _evaluate_many(
         self,
         samples: list[RAGEvaluationSample],
     ) -> list[RAGEvaluationResult]:
@@ -540,10 +342,12 @@ class RAGEvaluator(
                 sample.qa_id,
             )
 
+            result = await self._evaluate(
+                sample,
+            )
+
             results.append(
-                self.evaluate(
-                    sample,
-                )
+                result,
             )
 
         logger.info(
@@ -552,3 +356,62 @@ class RAGEvaluator(
         )
 
         return results
+
+
+    # =====================================================
+    # Public API
+    # =====================================================
+
+    def evaluate(
+        self,
+        sample: RAGEvaluationSample,
+    ) -> RAGEvaluationResult:
+
+        return asyncio.run(
+            self._evaluate(
+                sample,
+            )
+        )
+
+    def evaluate_many(
+        self,
+        samples: list[RAGEvaluationSample],
+    ) -> list[RAGEvaluationResult]:
+
+        return asyncio.run(
+            self._evaluate_many(
+                samples,
+            )
+        )
+    
+    def run(
+        self,
+        setup: RAGEvaluationSetup,
+        num_samples: int | None = None,
+    ) -> RAGEvaluationRun:
+
+        logger.info("Starting RAG evaluation run.")
+
+        # 1. Build the complete RAG pipeline
+        pipeline:RAGPipeline = RAGPipeline.build(setup)
+
+        # 2. Generate RAG samples
+        samples = pipeline.generate_samples(
+            limit=num_samples,
+        )
+
+        logger.info(
+            "Generated %d evaluation samples.",
+            len(samples),
+        )
+
+        # 3. Evaluate those samples
+        results = self.evaluate_many(
+            samples,
+        )
+
+        # 4. Package this experiment
+        return RAGEvaluationRun(
+            setup=setup,
+            results=results,
+        )

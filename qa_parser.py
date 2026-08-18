@@ -117,8 +117,8 @@ class QAEmbeddingParser:
     ) -> list[QAEmbedding]:
 
         return load_models(
-            path=path,
             model_cls=QAEmbedding,
+            path=path,
         )
 
     @staticmethod
@@ -231,8 +231,8 @@ class QAParser:
     ) -> list[QAItem]:
 
         return load_models(
-            path,
             QAItem,
+            path,
         )
     
     @staticmethod

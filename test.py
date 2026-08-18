@@ -412,12 +412,14 @@ def test_src_retriever():
     from src.retriever import SourceRetriever
     from src.configs import QdrantVectorStoreConfig, SourceRetrieverConfig
     from src.vector_store import QdrantVectorStore
+    from src.utility import Modality
     vs_conf = QdrantVectorStoreConfig()
     vector_store = QdrantVectorStore(vs_conf)
-    retriever = SourceRetriever(SourceRetrieverConfig(), vector_store, "src-dpmc-codefuse-ai-F2LLM-v2-8B")
-    chunks = retriever.scroll(2)
+    retriever = SourceRetriever(SourceRetrieverConfig(modality=Modality.TEXT_TABLE), vector_store, "src-dpmc-codefuse-ai-F2LLM-v2-8B")
+    chunks = retriever.scroll(10)
     for chunk in chunks:
         print("="*50)
+        print(f"Node type: {chunk.node_type}")
         print(chunk.text)
         print("="*50)
 
@@ -467,7 +469,7 @@ def test_rag_pipeline(path:Path):
         text_generator
     )
 
-    samples = rag_pipeline.generate_samples(2)
+    samples = rag_pipeline.generate_samples(50)
 
     output_path = path / "eval_sample.json"
     RAGEvaluationSample.to_json(samples, output_path)
@@ -476,26 +478,99 @@ def test_rag_evaluator(path:Path):
     from src.evaluator import (
         RAGEvaluationSample,
         RAGEvaluator,
+        RAGEvaluationResult
     )
     from src.configs import (
         RAGEvaluatorConfig,
         EmbedderConfig,
+        OllamaBackendConfig,
         OllamaTextGeneratorConfig
     )
     from src.embedder import Embedder
     from src.models import OllamaTextGenerator
+    from src.utility import save_models
     samples = RAGEvaluationSample.from_json("outputs/run-20260713_082634/debug/eval_sample.json")
     embedder = Embedder(EmbedderConfig(model_name="codefuse-ai/F2LLM-v2-8B"))
-    generator = OllamaTextGenerator(OllamaTextGeneratorConfig(model_name="qwen3.5:9b", max_new_tokens=512))
+    generator = OllamaTextGenerator(OllamaTextGeneratorConfig(model_name="qwen3.5:9b", max_new_tokens=2048, backend=OllamaBackendConfig()))
     generator.load_pretrained()
     evaluator = RAGEvaluator(RAGEvaluatorConfig(), embedder, generator)
     results = evaluator.evaluate_many(samples)
-    for result in results:
-        result.to_json(path / f"eval_sample_scored_{result.sample.qa_id}.json")
+    save_models(results, path / "evaluation_result.json")
+
+def test_experiment(path:Path):
+    from src.evaluator import (
+        RAGEvaluationSetup,
+        RAGEvaluator,
+    )
+
+    from src.embedder import (
+        Embedder,
+    )
+
+    from src.models import (
+        OllamaTextGenerator,
+    )
+
+    from src.configs import (
+        RAGEvaluatorConfig,
+        EmbedderConfig,
+        DoublePassMergingChunkerConfig,
+        QdrantVectorStoreConfig,
+        QdrantConfig,
+        RAGPipelineConfig,
+        OllamaBackendConfig,
+        OllamaTextGeneratorConfig,
+        SourceRetrieverConfig,
+        QARetrieverConfig,
+    )
+
+    from src.utility import Modality
+
+    embedder_config=EmbedderConfig(
+            model_name="Octen/Octen-Embedding-8B"
+        )
+    
+    embedder = Embedder(embedder_config)
+
+    generator_config=OllamaTextGeneratorConfig(
+            model_name="qwen3.5:9b",
+            backend=OllamaBackendConfig(),
+            max_new_tokens=4096,
+        )
+    
+    generator = OllamaTextGenerator(generator_config)
+
+    generator.load_pretrained()
+
+    setup = RAGEvaluationSetup(
+        embedder=embedder_config,
+        chunker=DoublePassMergingChunkerConfig(),
+        vector_store=QdrantVectorStoreConfig(
+            backend=QdrantConfig()
+        ),
+        rag=RAGPipelineConfig(),
+        generator=generator_config,
+        source_retriever=SourceRetrieverConfig(
+            modality=Modality.TEXT
+        ),
+        qa_retriever=QARetrieverConfig()
+    )
+
+    rag_evaluator = RAGEvaluator(
+        config=RAGEvaluatorConfig(),
+        embedder=embedder,
+        generator=generator
+    )
+
+    experiment = rag_evaluator.run(setup=setup, num_samples=2)
+    experiment.to_json(path / "one_experiment_result.json")
+    experiment.save_markdown(path / "one_experiment_result_md.md")
 
 if __name__ == "__main__":
     # test_qa_retriever(runtime())
     # test_dpmc(runtime())
     # asyncio.run(test_apdfs_processor(runtime()))
     # test_rag_pipeline(runtime())
-    test_rag_evaluator(runtime())
+    # test_rag_evaluator(runtime())
+    print("start testing")
+    test_experiment(runtime())

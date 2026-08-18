@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from src.embedder import Embedder
 from src.configs import RAGPipelineConfig
-from src.evaluator import RAGEvaluationSample
+from src.rag_schemas import (
+    RAGEvaluationSample,
+    RAGEvaluationSetup,
+)
 from qa_parser import QARecord
 from src.retriever import (
     ChunkRecord,
     QARetriever,
     SourceRetriever,
 )
-from src.models import BaseTextGeneratorModel
-from src.utility import logger
+from src.models import BaseTextGeneratorModel, OllamaTextGenerator
+from src.utility import logger, clear_gpu
+from src.vector_store import QdrantVectorStore
 
 class RAGPipeline:
 
@@ -26,8 +30,48 @@ class RAGPipeline:
         self.embedder = embedder
         self.qa_retriever = qa_retriever
         self.source_retriever = source_retriever
-
         self.generator = generator
+
+    # =====================================================
+    # Build
+    # =====================================================
+    @classmethod
+    def build(
+        cls,
+        setup: RAGEvaluationSetup,
+    ) -> "RAGPipeline":
+
+        embedder = Embedder(
+            config=setup.embedder,
+        )
+
+        vector_store = QdrantVectorStore(setup.vector_store)
+
+        source_retriever = SourceRetriever(
+            config=setup.source_retriever,
+            vector_store=vector_store,
+            collection_name=setup.source_collection,
+        )
+
+        qa_retriever = QARetriever(
+            config=setup.qa_retriever,
+            vector_store=vector_store,
+            collection_name=setup.qa_collection,
+        )
+
+        generator = OllamaTextGenerator(
+            setup.generator,
+        )
+
+        generator.load_pretrained()
+
+        return cls(
+            config=setup.rag,
+            embedder=embedder,
+            qa_retriever=qa_retriever,
+            source_retriever=source_retriever,
+            generator=generator,
+        )
 
     # =====================================================
     # Retrieval
@@ -97,63 +141,6 @@ class RAGPipeline:
             retrieved_chunks=retrieved_chunks,
             generated_answer=generated_answer,
         )
-    
-    def generate(
-        self,
-        question: str,
-    ) -> str:
-
-        logger.info(
-            "Generating answer for user query.",
-        )
-
-        logger.debug(
-            "Question: %s",
-            question,
-        )
-
-        query_embedding = self.embedder.embed_query(
-            question,
-        )
-
-        retrieved_records = self.source_retriever.retrieve(
-            query_embedding
-        )
-
-        logger.debug(
-            "Retrieved %d chunk(s).",
-            len(retrieved_records),
-        )
-
-        retrieved_chunks = [
-            record.text
-            for record in retrieved_records
-        ]
-
-        prompt = self._build_prompt(
-            question=question,
-            chunks=retrieved_chunks,
-        )
-
-        logger.debug(
-            "Prompt constructed (%d characters).",
-            len(prompt),
-        )
-
-        answer = self._generate_answer(
-            prompt,
-        )
-
-        logger.debug(
-            "Generated answer (%d characters).",
-            len(answer),
-        )
-
-        logger.info(
-            "Answer generated.",
-        )
-
-        return answer
 
     # =====================================================
     # Pipeline
@@ -277,5 +264,7 @@ class RAGPipeline:
             "Generated %d evaluation sample(s).",
             len(samples),
         )
+
+        clear_gpu()
 
         return samples

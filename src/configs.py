@@ -8,7 +8,7 @@ from pydantic import (
     computed_field,
 )
 from enum import StrEnum
-from src.utility import LogLevel, load_model, sanitize_name, save_model
+from src.utility import LogLevel, Modality, load_model, sanitize_name, save_model
 
 class TextMergeMode(StrEnum):
     PAGE = "page"
@@ -226,11 +226,14 @@ class TransformerTableCaptioningConfig(BaseTableCaptioningConfig):
 # ============================================================
 
 class BaseTextGeneratorConfig(BaseTextGenerationConfig):
-    pass
+    max_retry:int = Field(
+        default=3,
+        ge=0,
+    )
 
 
 class OllamaTextGeneratorConfig(BaseTextGeneratorConfig):
-
+    
     backend: OllamaBackendConfig = Field(
         default_factory=OllamaBackendConfig
     )
@@ -730,8 +733,7 @@ class DenseRetrieverConfig(BaseRetrieverConfig):
 class SourceRetrieverConfig(
     DenseRetrieverConfig,
 ):
-
-    pass
+    modality:Modality | None = None
 
 class QARetrieverConfig(
     DenseRetrieverConfig,

@@ -53,8 +53,6 @@ class BaseConfig(BaseModel):
             cls,
         )
 
-    log_level: LogLevel = LogLevel.INFO
-
 # ============================================================
 # ML
 # ============================================================
@@ -726,6 +724,7 @@ class BaseRetrieverConfig(BaseConfig):
 
 class DenseRetrieverConfig(BaseRetrieverConfig):
 
+    @computed_field
     @property
     def name(self):
         return "dense"

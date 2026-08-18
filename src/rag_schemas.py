@@ -6,11 +6,13 @@ from typing import Any, Self
 from statistics import mean
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 from src.configs import (
-    BaseChunkerConfig,
     BaseTextGeneratorConfig,
     BaseVectorStoreConfig,
+    DoublePassMergingChunkerConfig,
     EmbedderConfig,
+    OllamaTextGeneratorConfig,
     QARetrieverConfig,
+    QdrantVectorStoreConfig,
     RAGPipelineConfig,
     SourceRetrieverConfig,
 )
@@ -194,13 +196,13 @@ class RAGEvaluationSetup(BaseModel):
 
     embedder: EmbedderConfig
 
-    chunker: BaseChunkerConfig
+    chunker: DoublePassMergingChunkerConfig
 
-    vector_store: BaseVectorStoreConfig
+    vector_store: QdrantVectorStoreConfig
 
     rag: RAGPipelineConfig
 
-    generator: BaseTextGeneratorConfig
+    generator: OllamaTextGeneratorConfig
 
     source_retriever: SourceRetrieverConfig
 

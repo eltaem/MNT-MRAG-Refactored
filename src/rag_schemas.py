@@ -376,8 +376,64 @@ class BenchmarkResult(BaseEvaluationArtifact):
             ":---:|:---:|:---:|:---:|:---:|"
         )
 
+        # =====================================================
+        # Find best score for each metric
+        # =====================================================
+
+        summaries = [
+            run.summary.average_metrics
+            for run in self.runs
+        ]
+
+        max_bleu = max(m.bleu for m in summaries)
+        max_rouge1 = max(m.rouge1 for m in summaries)
+        max_rouge2 = max(m.rouge2 for m in summaries)
+        max_rougeL = max(m.rougeL for m in summaries)
+
+        max_context_precision = max(
+            m.context_precision
+            for m in summaries
+        )
+        max_context_recall = max(
+            m.context_recall
+            for m in summaries
+        )
+        max_faithfulness = max(
+            m.faithfulness
+            for m in summaries
+        )
+        max_answer_relevancy = max(
+            m.answer_relevancy
+            for m in summaries
+        )
+        max_semantic_similarity = max(
+            m.semantic_similarity
+            for m in summaries
+        )
+
+        # =====================================================
+        # Formatting helper
+        # =====================================================
+
+        def format_metric(
+            value: float,
+            maximum: float,
+        ) -> str:
+
+            formatted = f"{value:.4f}"
+
+            if value == maximum:
+                return f"**{formatted}**"
+
+            return formatted
+
+        # =====================================================
+        # Individual experiment rows
+        # =====================================================
+
         previous_embedder: str | None = None
         previous_chunker: str | None = None
+        previous_generator: str | None = None
 
         for run in self.runs:
 
@@ -386,8 +442,8 @@ class BenchmarkResult(BaseEvaluationArtifact):
 
             embedder = setup.embedder.model_name
             chunker = setup.chunker.name
+            generator = setup.generator.model_name
 
-            # Only display when the value changes.
             display_embedder = (
                 embedder
                 if embedder != previous_embedder
@@ -400,23 +456,30 @@ class BenchmarkResult(BaseEvaluationArtifact):
                 else ""
             )
 
+            display_generator = (
+                generator
+                if generator != previous_generator
+                else ""
+            )
+
             lines.append(
                 f"| {display_embedder} | "
                 f"{setup.source_retriever.modality.display_name} | "
                 f"{display_chunker} | "
-                f"{setup.generator.model_name} | "
-                f"{metrics.bleu:.4f} | "
-                f"{metrics.rouge1:.4f} | "
-                f"{metrics.rouge2:.4f} | "
-                f"{metrics.rougeL:.4f} | "
-                f"{metrics.context_precision:.4f} | "
-                f"{metrics.context_recall:.4f} | "
-                f"{metrics.faithfulness:.4f} | "
-                f"{metrics.answer_relevancy:.4f} | "
-                f"{metrics.semantic_similarity:.4f} |"
+                f"{display_generator} | "
+                f"{format_metric(metrics.bleu, max_bleu)} | "
+                f"{format_metric(metrics.rouge1, max_rouge1)} | "
+                f"{format_metric(metrics.rouge2, max_rouge2)} | "
+                f"{format_metric(metrics.rougeL, max_rougeL)} | "
+                f"{format_metric(metrics.context_precision, max_context_precision)} | "
+                f"{format_metric(metrics.context_recall, max_context_recall)} | "
+                f"{format_metric(metrics.faithfulness, max_faithfulness)} | "
+                f"{format_metric(metrics.answer_relevancy, max_answer_relevancy)} | "
+                f"{format_metric(metrics.semantic_similarity, max_semantic_similarity)} |"
             )
 
             previous_embedder = embedder
             previous_chunker = chunker
+            previous_generator = generator
 
         return "\n".join(lines)

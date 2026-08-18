@@ -726,7 +726,7 @@ class DenseRetrieverConfig(BaseRetrieverConfig):
 
     @computed_field
     @property
-    def name(self):
+    def name(self) -> str:
         return "dense"
 
 class SourceRetrieverConfig(

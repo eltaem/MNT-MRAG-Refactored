@@ -371,14 +371,14 @@ class BenchmarkResult(BaseEvaluationArtifact):
         lines.append("## Experiment Comparison\n")
 
         lines.append(
-            "| Embedder | Modality | Chunker | Generator | "
+            "| Embedder | Modality | Chunker | Answer Generator | Evaluation Generator | "
             "BLEU | ROUGE-1 | ROUGE-2 | ROUGE-L | "
             "Context Precision | Context Recall | Faithfulness | "
             "Answer Relevancy | Semantic Similarity |"
         )
 
         lines.append(
-            "|:---|:---|:---|:---|"
+            "|:---|:---|:---|:---|:---|"
             ":---:|:---:|:---:|:---:|"
             ":---:|:---:|:---:|:---:|:---:|"
         )

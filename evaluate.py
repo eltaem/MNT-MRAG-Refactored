@@ -38,7 +38,7 @@ MODALITIES = [
     Modality.TEXT_TABLE_IMAGE,
 ]
 
-NUM_SAMPLES = 2
+NUM_SAMPLES = 50
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 experiment_dir = Path("outputs") / f"run-{timestamp}"

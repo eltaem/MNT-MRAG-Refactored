@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 from src.embedder import Embedder
 from src.configs import RAGPipelineConfig
 from src.rag_schemas import (
     RAGEvaluationSample,
     RAGEvaluationSetup,
+    RAGPipelineResult,
 )
 from qa_parser import QARecord
 from src.retriever import (
@@ -149,7 +151,7 @@ class RAGPipeline:
     def generate_sample(
         self,
         qa_record: QARecord,
-    ) -> RAGEvaluationSample:
+    ) -> RAGPipelineResult:
 
         logger.info(
             "Generating sample for QA '%s'.",
@@ -161,8 +163,25 @@ class RAGPipeline:
             qa_record.qa.question,
         )
 
+        # -------------------------------------------------
+        # Retrieval
+        # -------------------------------------------------
+
+        retrieval_start = time.perf_counter()
+
         retrieved_records = self._retrieve_chunks(
             qa_record,
+        )
+
+        retrieval_time = (
+            time.perf_counter()
+            - retrieval_start
+        )
+
+        logger.debug(
+            "Retrieval completed for QA '%s' in %.4f seconds.",
+            qa_record.qa.qa_id,
+            retrieval_time,
         )
 
         if not retrieved_records:
@@ -182,6 +201,10 @@ class RAGPipeline:
             for record in retrieved_records
         ]
 
+        # -------------------------------------------------
+        # Prompt construction
+        # -------------------------------------------------
+
         prompt = self._build_prompt(
             question=qa_record.qa.question,
             chunks=retrieved_chunks,
@@ -192,14 +215,35 @@ class RAGPipeline:
             len(prompt),
         )
 
+        # -------------------------------------------------
+        # Generation
+        # -------------------------------------------------
+
+        generation_start = time.perf_counter()
+
         generated_answer = self._generate_answer(
             prompt,
+        )
+
+        generation_time = (
+            time.perf_counter()
+            - generation_start
+        )
+
+        logger.debug(
+            "Generation completed for QA '%s' in %.4f seconds.",
+            qa_record.qa.qa_id,
+            generation_time,
         )
 
         logger.debug(
             "Generated answer (%d characters).",
             len(generated_answer),
         )
+
+        # -------------------------------------------------
+        # Sample
+        # -------------------------------------------------
 
         sample = self._build_sample(
             qa_record=qa_record,
@@ -212,13 +256,16 @@ class RAGPipeline:
             qa_record.qa.qa_id,
         )
 
-        return sample
-
+        return RAGPipelineResult(
+            sample=sample,
+            retrieval_time=retrieval_time,
+            generation_time=generation_time,
+        )
 
     def generate_samples(
         self,
         limit: int | None = None,
-    ) -> list[RAGEvaluationSample]:
+    ) -> list[RAGPipelineResult]:
 
         logger.info(
             "Loading QA records%s.",
@@ -238,7 +285,7 @@ class RAGPipeline:
             len(qa_records),
         )
 
-        samples: list[RAGEvaluationSample] = []
+        results: list[RAGPipelineResult] = []
 
         total = len(qa_records)
 
@@ -254,7 +301,7 @@ class RAGPipeline:
                 qa_record.qa.qa_id,
             )
 
-            samples.append(
+            results.append(
                 self.generate_sample(
                     qa_record,
                 )
@@ -262,9 +309,9 @@ class RAGPipeline:
 
         logger.info(
             "Generated %d evaluation sample(s).",
-            len(samples),
+            len(results),
         )
 
         clear_gpu()
 
-        return samples
+        return results

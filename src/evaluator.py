@@ -2,6 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from pathlib import Path
+import time
 from typing import Generic, TypeVar
 import sacrebleu
 from rouge_score import rouge_scorer
@@ -13,6 +14,8 @@ from src.rag_schemas import (
     RAGEvaluationSample,
     RAGEvaluationSetup,
     RAGMetrics,
+    RAGPipelineResult,
+    RAGRuntime,
 )
 from src.rag_pipeline import RAGPipeline
 from src.utility import logger
@@ -245,59 +248,40 @@ class RAGEvaluator(
 
     async def _evaluate(
         self,
-        sample: RAGEvaluationSample,
+        pipeline_result: RAGPipelineResult,
     ) -> RAGEvaluationResult:
+
+        sample = pipeline_result.sample
 
         logger.info(
             "Evaluating QA '%s'.",
             sample.qa_id,
         )
 
-        logger.debug(
-            "Question: %s",
-            sample.question,
-        )
-
         # -------------------------------------------------
-        # RAGAS
+        # Metric evaluation
         # -------------------------------------------------
 
-        logger.debug(
-            "Running RAGAS metrics for QA '%s'.",
-            sample.qa_id,
-        )
+        evaluation_start = time.perf_counter()
 
         ragas_metrics = await self._compute_ragas_metrics(
             sample,
-        )
-
-        logger.debug(
-            "RAGAS metrics for QA '%s': %s",
-            sample.qa_id,
-            ragas_metrics,
-        )
-
-        # -------------------------------------------------
-        # Classical metrics
-        # -------------------------------------------------
-
-        logger.debug(
-            "Running BLEU and ROUGE for QA '%s'.",
-            sample.qa_id,
         )
 
         classical_metrics = self._compute_bleu_rouge(
             sample,
         )
 
+        metric_evaluation_time = (time.perf_counter() - evaluation_start)
+
         logger.debug(
-            "Classical metrics for QA '%s': %s",
+            "Metric evaluation for QA '%s' completed in %.4f seconds.",
             sample.qa_id,
-            classical_metrics,
+            metric_evaluation_time,
         )
 
         # -------------------------------------------------
-        # Build result
+        # Metrics
         # -------------------------------------------------
 
         metrics = self._build_metrics(
@@ -305,35 +289,43 @@ class RAGEvaluator(
             classical_metrics,
         )
 
-        result = self._build_result(
-            sample,
-            metrics,
+        # -------------------------------------------------
+        # Runtime
+        # -------------------------------------------------
+
+        runtime = RAGRuntime(
+            retrieval_time=pipeline_result.retrieval_time,
+            generation_time=pipeline_result.generation_time,
+            metric_evaluation_time=metric_evaluation_time,
         )
 
-        logger.info(
-            "Finished evaluation for QA '%s'.",
-            sample.qa_id,
-        )
+        # -------------------------------------------------
+        # Result
+        # -------------------------------------------------
 
-        return result
+        return RAGEvaluationResult(
+            sample=sample,
+            metrics=metrics,
+            runtime=runtime,
+        )
 
 
     async def _evaluate_many(
         self,
-        samples: list[RAGEvaluationSample],
+        pipeline_results: list[RAGPipelineResult],
     ) -> list[RAGEvaluationResult]:
 
         logger.info(
             "Evaluating %d sample(s).",
-            len(samples),
+            len(pipeline_results),
         )
 
         results: list[RAGEvaluationResult] = []
 
-        total = len(samples)
+        total = len(pipeline_results)
 
-        for index, sample in enumerate(
-            samples,
+        for index, pipeline_result in enumerate(
+            pipeline_results,
             start=1,
         ):
 
@@ -341,16 +333,14 @@ class RAGEvaluator(
                 "[%d/%d] Evaluating QA '%s'.",
                 index,
                 total,
-                sample.qa_id,
+                pipeline_result.sample.qa_id,
             )
 
             result = await self._evaluate(
-                sample,
+                pipeline_result,
             )
 
-            results.append(
-                result,
-            )
+            results.append(result)
 
         logger.info(
             "Finished evaluating %d sample(s).",
@@ -359,30 +349,29 @@ class RAGEvaluator(
 
         return results
 
-
     # =====================================================
     # Public API
     # =====================================================
 
     def evaluate(
         self,
-        sample: RAGEvaluationSample,
+        pipeline_result: RAGPipelineResult,
     ) -> RAGEvaluationResult:
 
         return asyncio.run(
             self._evaluate(
-                sample,
+                pipeline_result,
             )
         )
 
     def evaluate_many(
         self,
-        samples: list[RAGEvaluationSample],
+        pipeline_results: list[RAGPipelineResult],
     ) -> list[RAGEvaluationResult]:
 
         return asyncio.run(
             self._evaluate_many(
-                samples,
+                pipeline_results,
             )
         )
 
@@ -414,12 +403,12 @@ class RAGExperimentRunner:
             generator=evaluation_generator,
         )
 
-        samples = pipeline.generate_samples(
+        pipeline_results = pipeline.generate_samples(
             limit=num_samples,
         )
 
         results = evaluator.evaluate_many(
-            samples,
+            pipeline_results,
         )
 
         return RAGEvaluationRun(

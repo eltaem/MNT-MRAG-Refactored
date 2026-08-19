@@ -6,8 +6,6 @@ from typing import Any, Self
 from statistics import mean
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 from src.configs import (
-    BaseTextGeneratorConfig,
-    BaseVectorStoreConfig,
     DoublePassMergingChunkerConfig,
     EmbedderConfig,
     OllamaTextGeneratorConfig,
@@ -145,11 +143,33 @@ class RAGMetrics(BaseModel):
 
     semantic_similarity: float
 
+class RAGRuntime(BaseModel):
+
+    retrieval_time: float
+
+    generation_time: float
+
+    metric_evaluation_time: float
+
+    @computed_field
+    @property
+    def total_time(self) -> float:
+        return (
+            self.retrieval_time
+            + self.generation_time
+            + self.metric_evaluation_time
+        )
+
+class RAGPipelineResult(BaseModel):
+    sample: RAGEvaluationSample
+    retrieval_time: float
+    generation_time: float
+
 class RAGEvaluationResult(BaseEvaluationArtifact):
 
     sample: RAGEvaluationSample
-
     metrics: RAGMetrics
+    runtime: RAGRuntime
 
     def to_markdown(self) -> str:
         """Generate markdown report for a single RAG evaluation result."""
@@ -161,33 +181,76 @@ class RAGEvaluationResult(BaseEvaluationArtifact):
         # ─── Question & Answers ───
         lines.append("**User Question:**")
         lines.append(f"\n{escape_md(self.sample.question)}\n")
+
         lines.append("\n**Generated Answer:**")
         lines.append(f"\n{escape_md(self.sample.generated_answer)}\n")
+
         lines.append("\n**Ground Truth:**")
         lines.append(f"\n{escape_md(self.sample.ground_truth)}\n")
 
         # ─── Retrieved Chunks ───
-        lines.append(f"**Retrieved Chunks ({len(self.sample.retrieved_chunks)}):**\n")
+        lines.append(
+            f"**Retrieved Chunks ({len(self.sample.retrieved_chunks)}):**\n"
+        )
+
         for i, chunk in enumerate(self.sample.retrieved_chunks, 1):
-            preview = chunk[:200] + "..." if len(chunk) > 200 else chunk
+            preview = (
+                chunk[:200] + "..."
+                if len(chunk) > 200
+                else chunk
+            )
             lines.append(f"{i}. {escape_md(preview)}\n")
-        lines.append("")  # blank line
+
+        lines.append("")
 
         # ─── Metrics Table ───
         lines.append("### Evaluation Scores\n")
+
         lines.append(
             "| BLEU | ROUGE-1 | ROUGE-2 | ROUGE-L | "
-            "Context Precision | Context Recall | Faithfulness | Answer Relevancy | Semantic Similarity |"
+            "Context Precision | Context Recall | Faithfulness | "
+            "Answer Relevancy | Semantic Similarity |"
         )
+
         lines.append(
             "|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|"
         )
+
         m = self.metrics
+
         lines.append(
-            f"| {m.bleu:.4f} | {m.rouge1:.4f} | {m.rouge2:.4f} | {m.rougeL:.4f} | "
-            f"{m.context_precision:.4f} | {m.context_recall:.4f} | {m.faithfulness:.4f} | "
-            f"{m.answer_relevancy:.4f} | {m.semantic_similarity:.4f} |"
+            f"| {m.bleu:.4f} | "
+            f"{m.rouge1:.4f} | "
+            f"{m.rouge2:.4f} | "
+            f"{m.rougeL:.4f} | "
+            f"{m.context_precision:.4f} | "
+            f"{m.context_recall:.4f} | "
+            f"{m.faithfulness:.4f} | "
+            f"{m.answer_relevancy:.4f} | "
+            f"{m.semantic_similarity:.4f} |"
         )
+
+        # ─── Runtime Table ───
+        lines.append("\n### Runtime\n")
+
+        lines.append(
+            "| Retrieval Time | Generation Time | "
+            "Evaluation Time | Total Time |"
+        )
+
+        lines.append(
+            "|:---:|:---:|:---:|:---:|"
+        )
+
+        r = self.runtime
+
+        lines.append(
+            f"| {r.retrieval_time:.4f} s | "
+            f"{r.generation_time:.4f} s | "
+            f"{r.metric_evaluation_time:.4f} s | "
+            f"{r.total_time:.4f} s |"
+        )
+
         lines.append("\n---\n")
 
         return "\n".join(lines)
@@ -233,6 +296,8 @@ class RAGEvaluationSummary(BaseModel):
 
     average_metrics: RAGMetrics
 
+    average_runtime: RAGRuntime
+
 class RAGEvaluationRun(BaseEvaluationArtifact):
 
     setup: RAGEvaluationSetup
@@ -244,6 +309,7 @@ class RAGEvaluationRun(BaseEvaluationArtifact):
     def summary(self) -> RAGEvaluationSummary:
 
         metrics = [r.metrics for r in self.results]
+        runtimes = [r.runtime for r in self.results]
 
         if not metrics:
             return RAGEvaluationSummary(
@@ -259,6 +325,11 @@ class RAGEvaluationRun(BaseEvaluationArtifact):
                     answer_relevancy=0.0,
                     semantic_similarity=0.0,
                 ),
+                average_runtime=RAGRuntime(
+                    retrieval_time=0.0,
+                    generation_time=0.0,
+                    metric_evaluation_time=0.0,
+                ),
             )
 
         return RAGEvaluationSummary(
@@ -273,6 +344,20 @@ class RAGEvaluationRun(BaseEvaluationArtifact):
                 faithfulness=mean(m.faithfulness for m in metrics),
                 answer_relevancy=mean(m.answer_relevancy for m in metrics),
                 semantic_similarity=mean(m.semantic_similarity for m in metrics),
+            ),
+            average_runtime=RAGRuntime(
+                retrieval_time=mean(
+                    r.retrieval_time
+                    for r in runtimes
+                ),
+                generation_time=mean(
+                    r.generation_time
+                    for r in runtimes
+                ),
+                metric_evaluation_time=mean(
+                    r.metric_evaluation_time
+                    for r in runtimes
+                ),
             ),
         )
     
@@ -348,6 +433,29 @@ class RAGEvaluationRun(BaseEvaluationArtifact):
             f"{metrics.semantic_similarity:.4f} |"
         )
 
+        # =====================================================
+        # Aggregate Runtime
+        # =====================================================
+
+        avg_runtime = self.summary.average_runtime
+
+        lines.append("\n### Average Runtime per Sample\n")
+
+        lines.append(
+            "| Retrieval | Generation | Metric Evaluation | Total |"
+        )
+
+        lines.append(
+            "|:---:|:---:|:---:|:---:|"
+        )
+
+        lines.append(
+            f"| {avg_runtime.retrieval_time:.4f}s | "
+            f"{avg_runtime.generation_time:.4f}s | "
+            f"{avg_runtime.metric_evaluation_time:.4f}s | "
+            f"{avg_runtime.total_time:.4f}s |"
+        )
+
         return "\n".join(lines)
 
 class BenchmarkResult(BaseEvaluationArtifact):
@@ -387,7 +495,7 @@ class BenchmarkResult(BaseEvaluationArtifact):
             run.setup.evaluation_generator.model_name
             for run in self.runs
         }
-        
+
         constant_embedder = (
             next(iter(embedders))
             if len(embedders) == 1
@@ -480,6 +588,13 @@ class BenchmarkResult(BaseEvaluationArtifact):
             "Semantic Similarity",
         ])
 
+        columns.extend([
+            "Avg Retrieval Time",
+            "Avg Generation Time",
+            "Avg Metric Evaluation Time",
+            "Avg Total Time",
+        ])
+
         lines.append(
             "| " + " | ".join(columns) + " |"
         )
@@ -498,9 +613,18 @@ class BenchmarkResult(BaseEvaluationArtifact):
             "Semantic Similarity",
         }
 
+        runtime_columns = {
+            "Avg Retrieval Time",
+            "Avg Generation Time",
+            "Avg Metric Evaluation Time",
+            "Avg Total Time",
+        }
+
+        centered_columns = metric_columns | runtime_columns
+
         alignment = [
             ":---:"
-            if column in metric_columns
+            if column in centered_columns
             else ":---"
             for column in columns
         ]
@@ -548,6 +672,26 @@ class BenchmarkResult(BaseEvaluationArtifact):
             for m in summaries
         )
 
+        min_retrieval_time = min(
+            run.summary.average_runtime.retrieval_time
+            for run in self.runs
+        )
+
+        min_generation_time = min(
+            run.summary.average_runtime.generation_time
+            for run in self.runs
+        )
+
+        min_metric_evaluation_time = min(
+            run.summary.average_runtime.metric_evaluation_time
+            for run in self.runs
+        )
+
+        min_total_time = min(
+            run.summary.average_runtime.total_time
+            for run in self.runs
+        )
+
         # =====================================================
         # Formatting helper
         # =====================================================
@@ -560,6 +704,18 @@ class BenchmarkResult(BaseEvaluationArtifact):
             formatted = f"{value:.4f}"
 
             if value == maximum:
+                return f"**{formatted}**"
+
+            return formatted
+        
+        def format_runtime(
+            value: float,
+            minimum: float,
+        ) -> str:
+
+            formatted = f"{value:.4f}s"
+
+            if value == minimum:
                 return f"**{formatted}**"
 
             return formatted
@@ -577,6 +733,7 @@ class BenchmarkResult(BaseEvaluationArtifact):
 
             setup = run.setup
             metrics = run.summary.average_metrics
+            runtime = run.summary.average_runtime
 
             embedder = setup.embedder.model_name
             chunker = setup.chunker.name
@@ -662,6 +819,25 @@ class BenchmarkResult(BaseEvaluationArtifact):
                 ),
             ])
 
+            row.extend([
+                format_runtime(
+                    runtime.retrieval_time,
+                    min_retrieval_time,
+                ),
+                format_runtime(
+                    runtime.generation_time,
+                    min_generation_time,
+                ),
+                format_runtime(
+                    runtime.metric_evaluation_time,
+                    min_metric_evaluation_time,
+                ),
+                format_runtime(
+                    runtime.total_time,
+                    min_total_time,
+                ),
+            ])
+
             lines.append(
                 "| " + " | ".join(row) + " |"
             )
@@ -673,5 +849,46 @@ class BenchmarkResult(BaseEvaluationArtifact):
                 evaluation_generator
             )
 
-        return "\n".join(lines)
+        # =====================================================
+        # Benchmark Runtime
+        # =====================================================
 
+        runtimes = [
+            run.summary.average_runtime
+            for run in self.runs
+        ]
+
+        benchmark_runtime = RAGRuntime(
+            retrieval_time=mean(
+                r.retrieval_time
+                for r in runtimes
+            ),
+            generation_time=mean(
+                r.generation_time
+                for r in runtimes
+            ),
+            metric_evaluation_time=mean(
+                r.metric_evaluation_time
+                for r in runtimes
+            ),
+        )
+
+        lines.append("\n## Benchmark Runtime\n")
+
+        lines.append(
+            "| Avg Retrieval Time | Avg Generation Time | "
+            "Avg Metric Evaluation Time | Avg Total Time |"
+        )
+
+        lines.append(
+            "|:---:|:---:|:---:|:---:|"
+        )
+
+        lines.append(
+            f"| {benchmark_runtime.retrieval_time:.4f}s | "
+            f"{benchmark_runtime.generation_time:.4f}s | "
+            f"{benchmark_runtime.metric_evaluation_time:.4f}s | "
+            f"{benchmark_runtime.total_time:.4f}s |"
+        )
+
+        return "\n".join(lines)

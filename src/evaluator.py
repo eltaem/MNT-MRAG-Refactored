@@ -440,14 +440,13 @@ class RAGExperimentRunner:
             runs.append(run)
 
             if save_dir is not None:
-                md_path = save_dir / "individual_experiments" / f"experiment_{index}.md"
-
-                run.save_markdown(md_path)
+                run.to_json(save_dir / "individual_experiments" / f"experiment_{index}_details.json")
+                run.save_markdown(save_dir / "individual_experiments" / f"experiment_{index}_readable.md")
 
         benchmark = BenchmarkResult(runs=runs)
 
         if save_dir is not None:
-            benchmark.to_json(save_dir / "summary" / "experiment_benchmark_result.json")
-            benchmark.save_markdown(save_dir / "summary" / "experiment_benchmark_result_table.md")
+            benchmark.to_json(save_dir / "summary" / "experiments_benchmark_details.json")
+            benchmark.save_markdown(save_dir / "summary" / "experiments_benchmark_summary.md")
 
         return benchmark

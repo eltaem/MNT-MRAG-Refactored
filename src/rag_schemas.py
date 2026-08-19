@@ -1,10 +1,11 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+import math
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 
 from statistics import mean
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, computed_field, field_validator
 from src.configs import (
     DoublePassMergingChunkerConfig,
     EmbedderConfig,
@@ -117,27 +118,32 @@ class RAGMetrics(BaseModel):
     # Lexical Metrics
     # =====================================================
 
-    bleu: float
+    bleu: float = 0.0
 
-    rouge1: float
+    rouge1: float = 0.0
 
-    rouge2: float
+    rouge2: float = 0.0
 
-    rougeL: float
+    rougeL: float = 0.0
 
     # =====================================================
     # RAGAS Metrics
     # =====================================================
 
-    context_precision: float
+    context_precision: float = 0.0
 
-    context_recall: float
+    context_recall: float = 0.0
 
-    faithfulness: float
+    faithfulness: float = 0.0
 
-    answer_relevancy: float
+    answer_relevancy: float = 0.0
 
-    semantic_similarity: float
+    semantic_similarity: float = 0.0
+
+    @field_validator("*")
+    @classmethod
+    def replace_non_finite(cls, value: float) -> float:
+        return value if math.isfinite(value) else 0.0
 
 class RAGRuntime(BaseModel):
 

@@ -211,6 +211,7 @@ class BaseTextGeneratorModel(BasePretrainedModel):
         self,
         prompt: str,
         response_model: Type[InstructorTypeVar],
+        system_prompt: str | None = None,
         **kwargs,
     ) -> InstructorTypeVar:
         ...
@@ -220,6 +221,7 @@ class BaseTextGeneratorModel(BasePretrainedModel):
         self,
         prompt: str,
         response_model: Type[InstructorTypeVar],
+        system_prompt: str | None = None,
         **kwargs,
     ) -> InstructorTypeVar:
         ...
@@ -231,7 +233,9 @@ class BaseTextGeneratorModel(BasePretrainedModel):
     ) -> InstructorTypeVar:
 
         obj = extract_json_object(text)
-
+        if set(obj.keys()) >= {"$defs", "properties", "title", "type"} and "classifications" not in obj:
+            raise ValueError("Model echoed the JSON schema instead of returning data")
+        
         return response_model.model_validate(obj)
 
 class BaseImageCaptioningModel(BaseCaptioningModel):
@@ -568,7 +572,7 @@ class OllamaTextGenerator(
         model.load_pretrained()
 
         return model
-    
+
     def _generate_structured_retry(
         self,
         prompt: str,

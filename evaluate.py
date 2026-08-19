@@ -62,6 +62,11 @@ def evaluate_embedder_combination():
             ),
             evaluation_generator=OllamaTextGeneratorConfig(
                 model_name="qwen3.5:9b",
+                system_prompt=(
+                    "Perform the task and respond with ONLY a JSON object containing real data for fields "
+                    "\"{required_fields}\", not the JSON Schema (no \"$defs\"/\"properties\"/\"title\"), "
+                    "no markdown, no extra text. Respond in {language}."
+                ),
                 backend=OllamaBackendConfig(),
                 max_new_tokens=4096,
                 temperature=0,

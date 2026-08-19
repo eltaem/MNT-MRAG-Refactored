@@ -111,10 +111,6 @@ class RAGEvaluationSample(BaseSample):
 
     generated_answer: str
 
-    metadata: dict[str, Any] = Field(
-        default_factory=dict,
-    )
-
 class RAGMetrics(BaseModel):
 
     # =====================================================

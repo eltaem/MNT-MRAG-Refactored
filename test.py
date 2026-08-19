@@ -415,7 +415,7 @@ def test_src_retriever():
     from src.utility import Modality
     vs_conf = QdrantVectorStoreConfig()
     vector_store = QdrantVectorStore(vs_conf)
-    retriever = SourceRetriever(SourceRetrieverConfig(modality=Modality.TEXT_TABLE), vector_store, "src-dpmc-codefuse-ai-F2LLM-v2-8B")
+    retriever = SourceRetriever(SourceRetrieverConfig(modality=Modality.TEXT_TABLE_IMAGE), vector_store, "src-dpmc-codefuse-ai-F2LLM-v2-8B")
     chunks = retriever.scroll(10)
     for chunk in chunks:
         print("="*50)
@@ -664,4 +664,4 @@ if __name__ == "__main__":
     # test_rag_pipeline(runtime())
     # test_rag_evaluator(runtime())
     #test_multiple_experiments(runtime())
-    asyncio.run(test_schema())
+    test_src_retriever()

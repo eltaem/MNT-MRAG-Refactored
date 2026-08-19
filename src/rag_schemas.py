@@ -368,19 +368,145 @@ class BenchmarkResult(BaseEvaluationArtifact):
             f"**Total Experiments:** {len(self.runs)}\n"
         )
 
-        lines.append("## Experiment Comparison\n")
+        embedders = {
+            run.setup.embedder.model_name
+            for run in self.runs
+        }
 
-        lines.append(
-            "| Embedder | Modality | Chunker | Answer Generator | Evaluation Generator | "
-            "BLEU | ROUGE-1 | ROUGE-2 | ROUGE-L | "
-            "Context Precision | Context Recall | Faithfulness | "
-            "Answer Relevancy | Semantic Similarity |"
+        chunkers = {
+            run.setup.chunker.name
+            for run in self.runs
+        }
+
+        answer_generators = {
+            run.setup.answer_generator.model_name
+            for run in self.runs
+        }
+
+        evaluation_generators = {
+            run.setup.evaluation_generator.model_name
+            for run in self.runs
+        }
+        
+        constant_embedder = (
+            next(iter(embedders))
+            if len(embedders) == 1
+            else None
         )
 
+        constant_chunker = (
+            next(iter(chunkers))
+            if len(chunkers) == 1
+            else None
+        )
+
+        constant_answer_generator = (
+            next(iter(answer_generators))
+            if len(answer_generators) == 1
+            else None
+        )
+
+        constant_evaluation_generator = (
+            next(iter(evaluation_generators))
+            if len(evaluation_generators) == 1
+            else None
+        )
+
+        # =====================================================
+        # Benchmark configuration
+        # =====================================================
+
+        fixed_configuration: list[tuple[str, str]] = []
+
+        if constant_embedder is not None:
+            fixed_configuration.append(
+                ("Embedder", constant_embedder)
+            )
+
+        if constant_chunker is not None:
+            fixed_configuration.append(
+                ("Chunker", constant_chunker)
+            )
+
+        if constant_answer_generator is not None:
+            fixed_configuration.append(
+                ("Answer Generator", constant_answer_generator)
+            )
+
+        if constant_evaluation_generator is not None:
+            fixed_configuration.append(
+                ("Evaluation Generator", constant_evaluation_generator)
+            )
+
+        if fixed_configuration:
+            lines.append("**Fixed Configuration:**\n")
+
+            for name, value in fixed_configuration:
+                lines.append(f"- **{name}:** {value}")
+
+            lines.append("")
+
+        lines.append("## Experiment Comparison\n")
+
+        # =====================================================
+        # Determine table columns
+        # =====================================================
+
+        columns: list[str] = []
+
+        if constant_embedder is None:
+            columns.append("Embedder")
+
+        columns.append("Modality")
+
+        if constant_chunker is None:
+            columns.append("Chunker")
+
+        if constant_answer_generator is None:
+            columns.append("Answer Generator")
+
+        if constant_evaluation_generator is None:
+            columns.append("Evaluation Generator")
+
+        columns.extend([
+            "BLEU",
+            "ROUGE-1",
+            "ROUGE-2",
+            "ROUGE-L",
+            "Context Precision",
+            "Context Recall",
+            "Faithfulness",
+            "Answer Relevancy",
+            "Semantic Similarity",
+        ])
+
         lines.append(
-            "|:---|:---|:---|:---|:---|"
-            ":---:|:---:|:---:|:---:|"
-            ":---:|:---:|:---:|:---:|:---:|"
+            "| " + " | ".join(columns) + " |"
+        )
+
+        # Configuration columns are left-aligned;
+        # metric columns are centered.
+        metric_columns = {
+            "BLEU",
+            "ROUGE-1",
+            "ROUGE-2",
+            "ROUGE-L",
+            "Context Precision",
+            "Context Recall",
+            "Faithfulness",
+            "Answer Relevancy",
+            "Semantic Similarity",
+        }
+
+        alignment = [
+            ":---:"
+            if column in metric_columns
+            else ":---"
+            for column in columns
+        ]
+
+        lines.append(
+            "| " + " | ".join(alignment) + " |"
         )
 
         # =====================================================
@@ -401,18 +527,22 @@ class BenchmarkResult(BaseEvaluationArtifact):
             m.context_precision
             for m in summaries
         )
+
         max_context_recall = max(
             m.context_recall
             for m in summaries
         )
+
         max_faithfulness = max(
             m.faithfulness
             for m in summaries
         )
+
         max_answer_relevancy = max(
             m.answer_relevancy
             for m in summaries
         )
+
         max_semantic_similarity = max(
             m.semantic_similarity
             for m in summaries
@@ -451,52 +581,97 @@ class BenchmarkResult(BaseEvaluationArtifact):
             embedder = setup.embedder.model_name
             chunker = setup.chunker.name
             answer_generator = setup.answer_generator.model_name
-            evaluation_generator = setup.evaluation_generator.model_name
-
-            display_embedder = (
-                embedder
-                if embedder != previous_embedder
-                else ""
+            evaluation_generator = (
+                setup.evaluation_generator.model_name
             )
 
-            display_chunker = (
-                chunker
-                if chunker != previous_chunker
-                else ""
+            row: list[str] = []
+
+            # -------------------------------------------------
+            # Configuration columns
+            # -------------------------------------------------
+
+            if constant_embedder is None:
+                display_embedder = (
+                    embedder
+                    if embedder != previous_embedder
+                    else ""
+                )
+
+                row.append(display_embedder)
+
+            row.append(
+                setup.source_retriever.modality.display_name
             )
 
-            display_answer_generator = (
-                answer_generator
-                if answer_generator != previous_answer_generator
-                else ""
-            )
+            if constant_chunker is None:
+                display_chunker = (
+                    chunker
+                    if chunker != previous_chunker
+                    else ""
+                )
 
-            display_evaluation_generator = (
-                evaluation_generator
-                if evaluation_generator != previous_evaluation_generator
-                else ""
-            )
+                row.append(display_chunker)
+
+            if constant_answer_generator is None:
+                display_answer_generator = (
+                    answer_generator
+                    if answer_generator != previous_answer_generator
+                    else ""
+                )
+
+                row.append(display_answer_generator)
+
+            if constant_evaluation_generator is None:
+                display_evaluation_generator = (
+                    evaluation_generator
+                    if evaluation_generator != previous_evaluation_generator
+                    else ""
+                )
+
+                row.append(display_evaluation_generator)
+
+            # -------------------------------------------------
+            # Metrics
+            # -------------------------------------------------
+
+            row.extend([
+                format_metric(metrics.bleu, max_bleu),
+                format_metric(metrics.rouge1, max_rouge1),
+                format_metric(metrics.rouge2, max_rouge2),
+                format_metric(metrics.rougeL, max_rougeL),
+                format_metric(
+                    metrics.context_precision,
+                    max_context_precision,
+                ),
+                format_metric(
+                    metrics.context_recall,
+                    max_context_recall,
+                ),
+                format_metric(
+                    metrics.faithfulness,
+                    max_faithfulness,
+                ),
+                format_metric(
+                    metrics.answer_relevancy,
+                    max_answer_relevancy,
+                ),
+                format_metric(
+                    metrics.semantic_similarity,
+                    max_semantic_similarity,
+                ),
+            ])
 
             lines.append(
-                f"| {display_embedder} | "
-                f"{setup.source_retriever.modality.display_name} | "
-                f"{display_chunker} | "
-                f"{display_answer_generator} | "
-                f"{display_evaluation_generator} | "
-                f"{format_metric(metrics.bleu, max_bleu)} | "
-                f"{format_metric(metrics.rouge1, max_rouge1)} | "
-                f"{format_metric(metrics.rouge2, max_rouge2)} | "
-                f"{format_metric(metrics.rougeL, max_rougeL)} | "
-                f"{format_metric(metrics.context_precision, max_context_precision)} | "
-                f"{format_metric(metrics.context_recall, max_context_recall)} | "
-                f"{format_metric(metrics.faithfulness, max_faithfulness)} | "
-                f"{format_metric(metrics.answer_relevancy, max_answer_relevancy)} | "
-                f"{format_metric(metrics.semantic_similarity, max_semantic_similarity)} |"
+                "| " + " | ".join(row) + " |"
             )
 
             previous_embedder = embedder
             previous_chunker = chunker
             previous_answer_generator = answer_generator
-            previous_evaluation_generator = evaluation_generator
+            previous_evaluation_generator = (
+                evaluation_generator
+            )
 
         return "\n".join(lines)
+

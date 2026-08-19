@@ -60,7 +60,7 @@ class RAGPipeline:
         )
 
         generator = OllamaTextGenerator(
-            setup.generator,
+            setup.answer_generator,
         )
 
         generator.load_pretrained()

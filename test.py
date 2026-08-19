@@ -612,7 +612,50 @@ def test_multiple_experiments(path:Path):
     experiments.to_json(path / "multiple_experiment_result.json")
     experiments.save_markdown(path / "multiple_experiment_result_md.md")
 
+async def test_schema():
+    from pydantic import BaseModel
+    import json
+    import ollama
+    from ollama import ChatResponse
+
+    class Item(BaseModel):
+        name: str
+        value: int
+
+
+    class Output(BaseModel):
+        name: str
+        value: int
+
+    schema = Output.model_json_schema()
+
+    print(json.dumps(schema, indent=2))
+
+    aclient = ollama.AsyncClient(
+            host="http://localhost:11434",
+        )
+    
+    response = await aclient.chat(
+        model="qwen3.5:9b",
+        think=False,
+        format=Output.model_json_schema(),
+        messages=[
+            {
+                "role": "user",
+                "content": "Return an object with name apple and value 10.",
+            }
+        ],
+        options={
+            "temperature": 0,
+            "top_p": 1,
+            "num_predict": 128,
+        },
+    )
+    print(repr(response.message.content))
+    print(response.message.content)
+
 if __name__ == "__main__":
+    import asyncio
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     print(f"Start testing, time: {timestamp}")
     # test_qa_retriever(runtime())
@@ -620,4 +663,5 @@ if __name__ == "__main__":
     # asyncio.run(test_apdfs_processor(runtime()))
     # test_rag_pipeline(runtime())
     # test_rag_evaluator(runtime())
-    test_multiple_experiments(runtime())
+    #test_multiple_experiments(runtime())
+    asyncio.run(test_schema())

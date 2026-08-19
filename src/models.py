@@ -584,8 +584,7 @@ class OllamaTextGenerator(
             response = self._client.chat(
                 model=self.config.model_name,
                 think=self.config.backend.think,
-                # format=response_model.model_json_schema(),
-                format='json',
+                format=response_model.model_json_schema(),
                 messages=[
                     {
                         "role": "system",
@@ -684,8 +683,7 @@ class OllamaTextGenerator(
             response = await self._aclient.chat(
                 model=self.config.model_name,
                 think=self.config.backend.think,
-                # format=response_model.model_json_schema(),
-                format='json',
+                format=response_model.model_json_schema(),
                 messages=[
                     {
                         "role": "system",

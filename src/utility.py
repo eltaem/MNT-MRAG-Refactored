@@ -193,6 +193,10 @@ def configure_logging(level: LogLevel):
     )
     logger.setLevel(int(level))
 
+# ==========================================================
+# LOGGING SETTINGS
+# ==========================================================
+
 configure_logging(LogLevel.INFO)
 
 T = TypeVar("T", bound=BaseModel)

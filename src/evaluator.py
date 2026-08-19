@@ -1,6 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
+from pathlib import Path
 from typing import Generic, TypeVar
 import sacrebleu
 from rouge_score import rouge_scorer
@@ -25,7 +26,7 @@ from ragas.metrics.collections import (
     SemanticSimilarity
 )
 
-from src.models import BaseTextGeneratorModel
+from src.models import BaseTextGeneratorModel, OllamaTextGenerator
 from src.embedder import Embedder
 from src.configs import (
     BaseEvaluatorConfig,
@@ -401,10 +402,16 @@ class RAGExperimentRunner:
 
         pipeline = RAGPipeline.build(setup)
 
+        evaluation_generator = OllamaTextGenerator(
+            setup.evaluation_generator
+        )
+
+        evaluation_generator.load_pretrained()
+
         evaluator = RAGEvaluator(
             config=self.config,
             embedder=pipeline.embedder,
-            generator=pipeline.generator,
+            generator=evaluation_generator,
         )
 
         samples = pipeline.generate_samples(
@@ -424,16 +431,34 @@ class RAGExperimentRunner:
         self,
         setups: list[RAGEvaluationSetup],
         num_samples: int | None = None,
+        save_dir: str | Path | None = None,
     ) -> BenchmarkResult:
+        
+        save_dir = Path(save_dir) if save_dir is not None else None
 
-        runs = [
-            self.run_single_experiment(
+        if save_dir is not None:
+            save_dir.mkdir(parents=True, exist_ok=True,)
+
+        runs: list[RAGEvaluationRun] = []
+
+        for index, setup in enumerate(setups, start=1,):
+
+            run = self.run_single_experiment(
                 setup=setup,
                 num_samples=num_samples,
             )
-            for setup in setups
-        ]
 
-        return BenchmarkResult(
-            runs=runs,
-        )
+            runs.append(run)
+
+            if save_dir is not None:
+                md_path = save_dir / "individual_experiments" / f"experiment_{index}.md"
+
+                run.save_markdown(md_path)
+
+        benchmark = BenchmarkResult(runs=runs)
+
+        if save_dir is not None:
+            benchmark.to_json(save_dir / "summary" / "experiment_benchmark_result.json")
+            benchmark.save_markdown(save_dir / "summary" / "experiment_benchmark_result_table.md")
+
+        return benchmark

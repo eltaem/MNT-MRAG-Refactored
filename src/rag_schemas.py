@@ -202,7 +202,9 @@ class RAGEvaluationSetup(BaseModel):
 
     rag: RAGPipelineConfig
 
-    generator: OllamaTextGeneratorConfig
+    answer_generator: OllamaTextGeneratorConfig
+
+    evaluation_generator: OllamaTextGeneratorConfig
 
     source_retriever: SourceRetrieverConfig
 
@@ -296,7 +298,10 @@ class RAGEvaluationRun(BaseEvaluationArtifact):
             f"- **Chunker:** `{self.setup.chunker.name}`"
         )
         lines.append(
-            f"- **Generator:** `{self.setup.generator.model_name}`"
+            f"- **Answer Generator:** `{self.setup.answer_generator.model_name}`"
+        )
+        lines.append(
+            f"- **Evaluation Generator:** `{self.setup.evaluation_generator.model_name}`"
         )
 
         lines.append("\n---\n")
@@ -435,7 +440,8 @@ class BenchmarkResult(BaseEvaluationArtifact):
 
         previous_embedder: str | None = None
         previous_chunker: str | None = None
-        previous_generator: str | None = None
+        previous_answer_generator: str | None = None
+        previous_evaluation_generator: str | None = None
 
         for run in self.runs:
 
@@ -444,7 +450,8 @@ class BenchmarkResult(BaseEvaluationArtifact):
 
             embedder = setup.embedder.model_name
             chunker = setup.chunker.name
-            generator = setup.generator.model_name
+            answer_generator = setup.answer_generator.model_name
+            evaluation_generator = setup.evaluation_generator.model_name
 
             display_embedder = (
                 embedder
@@ -458,9 +465,15 @@ class BenchmarkResult(BaseEvaluationArtifact):
                 else ""
             )
 
-            display_generator = (
-                generator
-                if generator != previous_generator
+            display_answer_generator = (
+                answer_generator
+                if answer_generator != previous_answer_generator
+                else ""
+            )
+
+            display_evaluation_generator = (
+                evaluation_generator
+                if evaluation_generator != previous_evaluation_generator
                 else ""
             )
 
@@ -468,7 +481,8 @@ class BenchmarkResult(BaseEvaluationArtifact):
                 f"| {display_embedder} | "
                 f"{setup.source_retriever.modality.display_name} | "
                 f"{display_chunker} | "
-                f"{display_generator} | "
+                f"{display_answer_generator} | "
+                f"{display_evaluation_generator} | "
                 f"{format_metric(metrics.bleu, max_bleu)} | "
                 f"{format_metric(metrics.rouge1, max_rouge1)} | "
                 f"{format_metric(metrics.rouge2, max_rouge2)} | "
@@ -482,6 +496,7 @@ class BenchmarkResult(BaseEvaluationArtifact):
 
             previous_embedder = embedder
             previous_chunker = chunker
-            previous_generator = generator
+            previous_answer_generator = answer_generator
+            previous_evaluation_generator = evaluation_generator
 
         return "\n".join(lines)

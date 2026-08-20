@@ -377,7 +377,7 @@ class OllamaImageCaptioningModel(BaseImageCaptioningModel):
                 "top_p":
                     self.config.top_p,
                 "num_predict":
-                    self.config.max_new_tokens,
+                    self.config.num_predict,
             },
         )
 
@@ -445,7 +445,7 @@ class OllamaTableCaptioningModel(BaseTableCaptioningModel):
                 "top_p":
                     self.config.top_p,
                 "num_predict":
-                    self.config.max_new_tokens,
+                    self.config.num_predict,
             },
         )
 
@@ -547,8 +547,12 @@ class OllamaTextGenerator(
                     self.config.top_p,
                 ),
                 "num_predict": kwargs.get(
-                    "max_new_tokens",
-                    self.config.max_new_tokens,
+                    "num_predict",
+                    self.config.num_predict,
+                ),
+                "repeat_penalty": kwargs.get(
+                    "repeat_penalty",
+                    self.config.repeat_penalty,
                 ),
             },
         )
@@ -609,8 +613,12 @@ class OllamaTextGenerator(
                         self.config.top_p,
                     ),
                     "num_predict": kwargs.get(
-                        "max_new_tokens",
-                        self.config.max_new_tokens,
+                        "num_predict",
+                        self.config.num_predict,
+                    ),
+                    "repeat_penalty": kwargs.get(
+                        "repeat_penalty",
+                        self.config.repeat_penalty,
                     ),
                 },
             )
@@ -708,8 +716,12 @@ class OllamaTextGenerator(
                         self.config.top_p,
                     ),
                     "num_predict": kwargs.get(
-                        "max_new_tokens",
-                        self.config.max_new_tokens,
+                        "num_predict",
+                        self.config.num_predict,
+                    ),
+                    "repeat_penalty": kwargs.get(
+                        "repeat_penalty",
+                        self.config.repeat_penalty,
                     ),
                 },
             )

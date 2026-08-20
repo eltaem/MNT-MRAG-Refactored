@@ -58,7 +58,7 @@ def evaluate_embedder_combination():
             generator=OllamaTextGeneratorConfig(
                 model_name="qwen3.5:9b",
                 backend=OllamaBackendConfig(),
-                max_new_tokens=4096,
+                num_predict=4096,
             ),
             source_retriever=SourceRetrieverConfig(
                 modality=modality,

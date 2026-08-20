@@ -131,7 +131,7 @@ class BaseTextGenerationConfig(BasePretrainedConfig):
         description="Language used for generated captions.",
     )
 
-    max_new_tokens: int = Field(
+    num_predict: int = Field(
         default=256,
         gt=0,
     )
@@ -145,6 +145,12 @@ class BaseTextGenerationConfig(BasePretrainedConfig):
         default=0.9,
         ge=0,
         le=1,
+    )
+
+    repeat_penalty: float = Field(
+        default=1.1,
+        ge=1.0,
+        le=2.0,
     )
 
     do_sample: bool = True

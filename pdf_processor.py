@@ -225,7 +225,7 @@ async def process_pdfs():
         OllamaImageCaptioningConfig(
             model_name="qwen3.5:9b",
             device="cuda",
-            max_new_tokens=512,
+            num_predict=512,
         )
     )
     image_captioning_model.load_pretrained()
@@ -234,7 +234,7 @@ async def process_pdfs():
         OllamaTableCaptioningConfig(
             model_name="qwen3.5:9b",
             device="cuda",
-            max_new_tokens=512,
+            num_predict=512,
         )
     )
     table_captioning_model.load_pretrained()

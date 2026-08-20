@@ -7,7 +7,7 @@ def test_image_captioning():
     from src.models import OllamaImageCaptioningModel
     # from src.configs import TransformerImageCaptioningConfig
     # from src.models import TransformerImageCaptioningModel
-    captioning_config = OllamaImageCaptioningConfig(model_name="qwen3.5:9b", device="cuda", max_new_tokens=512)
+    captioning_config = OllamaImageCaptioningConfig(model_name="qwen3.5:9b", device="cuda", num_predict=512)
     captioning_model = OllamaImageCaptioningModel(captioning_config)
     captioning_model.load_pretrained()
     caption1 = captioning_model.caption(input_data="data/images/0c0ea51a-cd46-5f4c-8d04-61c541aca26f/page_013/image_001_b173d73a.png")
@@ -140,7 +140,7 @@ def test_table_captioning():
             "4"
             ]
         ]
-    captioning_config = OllamaTableCaptioningConfig(model_name="qwen3.5:9b", device="cuda", max_new_tokens=512)
+    captioning_config = OllamaTableCaptioningConfig(model_name="qwen3.5:9b", device="cuda", num_predict=512)
     captioning_model = OllamaTableCaptioningModel(captioning_config)
     captioning_model.load_pretrained()
     caption = captioning_model.caption(input_data=table)
@@ -348,10 +348,10 @@ async def test_apdfs_processor(path:Path):
     merger_config = TextMergerConfig(
         mode=TextMergeMode.DOCUMENT
     )
-    image_captioning_config = OllamaImageCaptioningConfig(model_name="qwen3.5:9b", device="cuda", max_new_tokens=512)
+    image_captioning_config = OllamaImageCaptioningConfig(model_name="qwen3.5:9b", device="cuda", num_predict=512)
     image_captioning_model = OllamaImageCaptioningModel(image_captioning_config)
     image_captioning_model.load_pretrained()
-    table_captioning_config = OllamaTableCaptioningConfig(model_name="qwen3.5:9b", device="cuda", max_new_tokens=512)
+    table_captioning_config = OllamaTableCaptioningConfig(model_name="qwen3.5:9b", device="cuda", num_predict=512)
     table_captioning_model = OllamaTableCaptioningModel(table_captioning_config)
     table_captioning_model.load_pretrained()
     image_enricher_config = ImageCaptionEnricherConfig(batch_size=2)
@@ -459,7 +459,7 @@ def test_rag_pipeline(path:Path):
     qa_retriever = QARetriever(qa_r_conf, vector_store, "qa-codefuse-ai-F2LLM-v2-8B")
     src_r_conf = SourceRetrieverConfig()
     src_retriever = SourceRetriever(src_r_conf, vector_store, "src-dpmc-codefuse-ai-F2LLM-v2-8B")
-    tgen_conf = OllamaTextGeneratorConfig(model_name="qwen3.5:9b", max_new_tokens=512)
+    tgen_conf = OllamaTextGeneratorConfig(model_name="qwen3.5:9b", num_predict=512)
     text_generator = OllamaTextGenerator(tgen_conf)
     text_generator.load_pretrained()
     rag_pipeline = RAGPipeline(
@@ -490,7 +490,7 @@ def test_rag_evaluator(path:Path):
     from src.utility import save_models
     samples = RAGEvaluationSample.from_json("outputs/run-20260713_082634/debug/eval_sample.json")
     embedder = Embedder(EmbedderConfig(model_name="codefuse-ai/F2LLM-v2-8B"))
-    generator = OllamaTextGenerator(OllamaTextGeneratorConfig(model_name="qwen3.5:9b", max_new_tokens=2048, backend=OllamaBackendConfig()))
+    generator = OllamaTextGenerator(OllamaTextGeneratorConfig(model_name="qwen3.5:9b", num_predict=2048, backend=OllamaBackendConfig()))
     generator.load_pretrained()
     evaluator = RAGEvaluator(RAGEvaluatorConfig(), embedder, generator)
     results = evaluator.evaluate_many(samples)
@@ -529,7 +529,7 @@ def test_single_experiment(path:Path):
         generator=OllamaTextGeneratorConfig(
             model_name="qwen3.5:9b",
             backend=OllamaBackendConfig(),
-            max_new_tokens=4096,
+            num_predict=4096,
         ),
         source_retriever=SourceRetrieverConfig(
             modality=Modality.TEXT
@@ -593,7 +593,7 @@ def test_multiple_experiments(path:Path):
             generator=OllamaTextGeneratorConfig(
                 model_name="qwen3.5:9b",
                 backend=OllamaBackendConfig(),
-                max_new_tokens=4096,
+                num_predict=4096,
             ),
             source_retriever=SourceRetrieverConfig(
                 modality=modality,

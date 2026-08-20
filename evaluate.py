@@ -58,7 +58,7 @@ def evaluate_embedder_combination():
             answer_generator=OllamaTextGeneratorConfig(
                 model_name="qwen3.5:9b",
                 backend=OllamaBackendConfig(),
-                max_new_tokens=2048,
+                num_predict=2048,
             ),
             evaluation_generator=OllamaTextGeneratorConfig(
                 model_name="qwen3.5:9b",
@@ -68,7 +68,7 @@ def evaluate_embedder_combination():
                     "no markdown, no extra text. Respond in {language}."
                 ),
                 backend=OllamaBackendConfig(),
-                max_new_tokens=4096,
+                num_predict=4096,
                 temperature=0,
                 top_p=1
             ),

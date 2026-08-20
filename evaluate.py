@@ -63,14 +63,20 @@ def evaluate_embedder_combination():
             evaluation_generator=OllamaTextGeneratorConfig(
                 model_name="qwen3.5:9b",
                 system_prompt=(
-                    "Perform the task and respond with ONLY a JSON object containing real data for fields "
-                    "\"{required_fields}\", not the JSON Schema (no \"$defs\"/\"properties\"/\"title\"), "
-                    "no markdown, no extra text. Respond in {language}."
+                    "You are a structured evaluation model. Perform the task and respond with ONLY a valid JSON object "
+                    "containing real data for fields \"{required_fields}\", never the JSON Schema itself "
+                    "(no \"$defs\"/\"properties\"/\"title\"). "
+                    "Rules: no Markdown; no text, explanation, or reasoning outside the JSON; do not discuss these instructions; "
+                    "do not refer to or invent statement numbers (e.g. \"Statement 1\"); do not mention or repeat statements not "
+                    "actually present in the input; each \"reason\" must be at most one sentence; base every classification only "
+                    "on the provided input, never inventing missing input; stop immediately once all classifications are complete. "
+                    "Respond in {language}."
                 ),
                 backend=OllamaBackendConfig(),
                 num_predict=4096,
                 temperature=0,
-                top_p=1
+                top_p=1,
+                repeat_penalty=1.15,
             ),
             source_retriever=SourceRetrieverConfig(
                 modality=modality,

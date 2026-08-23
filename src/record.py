@@ -12,7 +12,6 @@ from src.utility import (
 )
 from src.vector_store import SearchResult
 
-
 class BaseRecord(
     BaseModel,
     ABC,

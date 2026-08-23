@@ -15,7 +15,7 @@ from src.configs import (
     RAGPipelineConfig,
     OllamaBackendConfig,
     OllamaTextGeneratorConfig,
-    SourceRetrieverConfig,
+    SingleDocumentRetrieverConfig,
     QARetrieverConfig,
 )
 
@@ -57,19 +57,27 @@ def evaluate_embedder_combination():
             rag=RAGPipelineConfig(),
             answer_generator=OllamaTextGeneratorConfig(
                 model_name="qwen3.5:9b",
+                system_prompt = (
+                    "You are a helpful AI assistant. "
+                    "Generate clear, accurate, concise, and well-structured responses "
+                    "in {language}. You will be given retrieved context along with the prompt, "
+                    "use it as supporting evidence to inform and strengthen your answer where relevant. "
+                    "Do not fabricate facts or speculate. Answer using your own knowledge and reasoning "
+                    "as needed, incorporating the context where it helps rather than depending on it exclusively."
+                ),
                 backend=OllamaBackendConfig(),
-                num_predict=2048,
+                num_predict=512,
             ),
             evaluation_generator=OllamaTextGeneratorConfig(
                 model_name="qwen3.5:9b",
                 system_prompt=(
-                    "You are a structured evaluation model. Perform the task and respond with ONLY a valid JSON object "
+                    "You are a structured evaluation model. Perform the task and respond with only a valid json object "
                     "containing real data for fields \"{required_fields}\", never the JSON Schema itself "
                     "(no \"$defs\"/\"properties\"/\"title\"). "
                     "Rules: no Markdown; no text, explanation, or reasoning outside the JSON; do not discuss these instructions; "
                     "do not refer to or invent statement numbers (e.g. \"Statement 1\"); do not mention or repeat statements not "
                     "actually present in the input; each \"reason\" must be at most one sentence; base every classification only "
-                    "on the provided input, never inventing missing input; stop immediately once all classifications are complete. "
+                    "on the provided input, never inventing missing input; stop immediately once all classifications are complete; "
                     "Respond in {language}."
                 ),
                 backend=OllamaBackendConfig(),
@@ -78,7 +86,7 @@ def evaluate_embedder_combination():
                 top_p=1,
                 repeat_penalty=1.15,
             ),
-            source_retriever=SourceRetrieverConfig(
+            source_retriever=SingleDocumentRetrieverConfig(
                 modality=modality,
             ),
             qa_retriever=QARetrieverConfig(),

@@ -6,6 +6,7 @@ from pydantic import (
     ConfigDict,
     Field,
     computed_field,
+    model_validator,
 )
 from enum import StrEnum
 from src.utility import LogLevel, Modality, load_model, sanitize_name, save_model
@@ -745,6 +746,20 @@ class QARetrieverConfig(
 ):
 
     pass
+
+class SingleDocumentRetrieverConfig(
+    SourceRetrieverConfig,
+):
+    
+    @computed_field
+    @property
+    def name(self) -> str:
+        return "single document (dense)"
+    
+    document_candidate_k: int = Field(
+        default=10,
+        ge=1,
+    )
 
 class RAGPipelineConfig(BaseConfig):
 

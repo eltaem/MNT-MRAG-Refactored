@@ -15,7 +15,7 @@ from src.configs import (
     RAGPipelineConfig,
     OllamaBackendConfig,
     OllamaTextGeneratorConfig,
-    SourceRetrieverConfig,
+    SingleDocumentRetrieverConfig,
     QARetrieverConfig,
 )
 
@@ -60,7 +60,7 @@ def evaluate_embedder_combination():
                 backend=OllamaBackendConfig(),
                 num_predict=4096,
             ),
-            source_retriever=SourceRetrieverConfig(
+            source_retriever=SingleDocumentRetrieverConfig(
                 modality=modality,
             ),
             qa_retriever=QARetrieverConfig(),

@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any, Counter, Generic, TypeVar
 
 from qa_parser import QARecord
 from src.record import BaseRecord
 from src.chunker import ChunkRecord
-from src.configs import BaseRetrieverConfig, DenseRetrieverConfig, QARetrieverConfig, SourceRetrieverConfig
+from src.configs import BaseRetrieverConfig, DenseRetrieverConfig, QARetrieverConfig, SingleDocumentRetrieverConfig, SourceRetrieverConfig
 from src.vector_store import BaseVectorStore
 from src.nodes import MODALITY_NODE_TYPES
 
@@ -66,12 +66,13 @@ class DenseRetriever(
         self,
         query: list[float],
         filters: dict[str, Any] | None = None,
+        top_k: int | None = None,
     ) -> list[RecordT]:
 
         hits = self.vector_store.search(
             collection_name=self.collection_name,
             query=query,
-            top_k=self.config.top_k,
+            top_k=top_k or self.config.top_k,
             filters=filters,
             with_vectors=True,
         )
@@ -167,11 +168,13 @@ class SourceRetriever(
         self,
         query: list[float],
         filters: dict[str, Any] | None = None,
+        top_k: int | None = None,
     ) -> list[ChunkRecord]:
 
         return super().retrieve(
             query=query,
             filters=self._merge_source_filters(filters),
+            top_k=top_k,
         )
 
 class QARetriever(
@@ -189,4 +192,54 @@ class QARetriever(
             vector_store=vector_store,
             collection_name=collection_name,
             record_type=QARecord,
+        )
+
+class SingleDocumentRetriever(
+    SourceRetriever,
+):
+
+    def __init__(
+        self,
+        config: SingleDocumentRetrieverConfig,
+        vector_store: BaseVectorStore,
+        collection_name: str,
+    ):
+        super().__init__(
+            config=config,
+            vector_store=vector_store,
+            collection_name=collection_name,
+        )
+
+        self.config = config
+
+    def retrieve(
+        self,
+        query: list[float],
+        filters: dict[str, Any] | None = None,
+        top_k: int | None = None,
+    ) -> list[ChunkRecord]:
+
+        candidate_chunks = super().retrieve(
+            query=query,
+            filters=filters,
+            top_k=self.config.document_candidate_k,
+        )
+
+        if not candidate_chunks:
+            return []
+
+        document_counts = Counter(
+            chunk.document_id
+            for chunk in candidate_chunks
+        )
+
+        document_id, _ = document_counts.most_common(1)[0]
+
+        return super().retrieve(
+            query=query,
+            filters={
+                **(filters or {}),
+                "chunk.document_id": document_id,
+            },
+            top_k=top_k or self.config.top_k,
         )

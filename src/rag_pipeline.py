@@ -12,7 +12,7 @@ from qa_parser import QARecord
 from src.retriever import (
     ChunkRecord,
     QARetriever,
-    SourceRetriever,
+    SingleDocumentRetriever,
 )
 from src.models import BaseTextGeneratorModel, OllamaTextGenerator
 from src.utility import logger, clear_gpu
@@ -25,7 +25,7 @@ class RAGPipeline:
         config: RAGPipelineConfig,
         embedder: Embedder,
         qa_retriever: QARetriever,
-        source_retriever: SourceRetriever,
+        source_retriever: SingleDocumentRetriever,
         generator: BaseTextGeneratorModel,
     ):
         self.config = config
@@ -49,7 +49,7 @@ class RAGPipeline:
 
         vector_store = QdrantVectorStore(setup.vector_store)
 
-        source_retriever = SourceRetriever(
+        source_retriever = SingleDocumentRetriever(
             config=setup.source_retriever,
             vector_store=vector_store,
             collection_name=setup.source_collection,

@@ -13,7 +13,7 @@ from src.configs import (
     QARetrieverConfig,
     QdrantVectorStoreConfig,
     RAGPipelineConfig,
-    SourceRetrieverConfig,
+    SingleDocumentRetrieverConfig,
 )
 from src.utility import escape_md, generate_collection_name, load_model, load_models, save_model, save_models
 
@@ -271,7 +271,7 @@ class RAGEvaluationSetup(BaseModel):
 
     evaluation_generator: OllamaTextGeneratorConfig
 
-    source_retriever: SourceRetrieverConfig
+    source_retriever: SingleDocumentRetrieverConfig
 
     qa_retriever: QARetrieverConfig
 

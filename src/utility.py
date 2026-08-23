@@ -2,6 +2,7 @@ from __future__ import annotations
 from enum import IntEnum, StrEnum
 import gc
 import json
+from json_repair import repair_json
 import re
 import hashlib
 from pathlib import Path
@@ -410,6 +411,7 @@ def extract_json_object(
 
     text = text.strip()
 
+    # Remove Markdown fences
     if text.startswith("```"):
         text = re.sub(
             r"^```(?:json)?\s*",
@@ -423,22 +425,49 @@ def extract_json_object(
             text,
         ).strip()
 
-    decoder = json.JSONDecoder()
+    # -----------------------------------------------------
+    # Strict parsing
+    # -----------------------------------------------------
 
-    for opener in ("{", "["):
-        start = text.find(opener)
+    start = text.find("{")
 
-        if start == -1:
-            continue
+    if start != -1:
 
         try:
-            obj, _ = decoder.raw_decode(
-                text[start:],
+            obj, _ = json.JSONDecoder().raw_decode(
+                text[start:]
             )
-            return obj
+
+            if isinstance(obj, dict):
+                return obj
 
         except json.JSONDecodeError:
-            continue
+            pass
+
+    # -----------------------------------------------------
+    # Automatic repair
+    # -----------------------------------------------------
+
+    try:
+        repaired = repair_json(
+            text,
+            return_objects=True,
+        )
+
+        if isinstance(repaired, dict):
+
+            logger.warning(
+                "Malformed JSON output was automatically repaired."
+            )
+
+            return repaired
+
+    except Exception as e:
+
+        logger.warning(
+            "JSON repair failed: %s",
+            e,
+        )
 
     raise ValueError(
         "No valid JSON object found in model output.",

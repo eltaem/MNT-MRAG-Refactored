@@ -78,7 +78,6 @@ def evaluate_embedder_combination():
                     "do not refer to or invent statement numbers (e.g. \"Statement 1\"); do not mention or repeat statements not "
                     "actually present in the input; each \"reason\" must be at most one sentence; base every classification only "
                     "on the provided input, never inventing missing input; stop immediately once all classifications are complete; "
-                    "each \"statement\" must be UNIQUE in other words different from one and another; "
                     "Respond in {language}."
                 ),
                 backend=OllamaBackendConfig(),

@@ -81,7 +81,7 @@ def evaluate_embedder_combination():
                     "Respond in {language}."
                 ),
                 backend=OllamaBackendConfig(),
-                num_predict=2048,
+                num_predict=4096,
                 temperature=0.15,
                 top_p=1,
                 repeat_penalty=1.15,

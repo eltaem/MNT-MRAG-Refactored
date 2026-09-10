@@ -26,9 +26,9 @@ from src.utility import Modality
 # =====================================================
 
 EMBEDDING_NAMES = [
-        "nvidia/llama-embed-nemotron-8b",
+        # "nvidia/llama-embed-nemotron-8b",
         "Octen/Octen-Embedding-8B",
-        "codefuse-ai/F2LLM-v2-8B",
+        # "codefuse-ai/F2LLM-v2-8B",
     ]
 
 MODALITIES = [
@@ -38,7 +38,7 @@ MODALITIES = [
     Modality.TEXT_TABLE_IMAGE,
 ]
 
-NUM_SAMPLES = 50
+NUM_QA_SAMPLES = None
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 experiment_dir = Path("outputs") / f"run-{timestamp}"
@@ -99,7 +99,7 @@ def evaluate_embedder_combination():
         config=RAGEvaluatorConfig(),
     )
     
-    rag_experiment_runner.run_multiple_experiments(setups=setups, num_samples=NUM_SAMPLES, save_dir=experiment_dir)
+    rag_experiment_runner.run_multiple_experiments(setups=setups, num_samples=NUM_QA_SAMPLES, save_dir=experiment_dir)
 
 if __name__ == "__main__":
     evaluate_embedder_combination()

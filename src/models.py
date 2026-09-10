@@ -233,9 +233,20 @@ class BaseTextGeneratorModel(BasePretrainedModel):
     ) -> InstructorTypeVar:
 
         obj = extract_json_object(text)
-        if set(obj.keys()) >= {"$defs", "properties", "title", "type"} and "classifications" not in obj:
-            raise ValueError("Model echoed the JSON schema instead of returning data")
-        
+
+        if (
+            set(obj.keys()) >= {"$defs", "properties", "title", "type"}
+            and "classifications" not in obj
+        ):
+            raise ValueError(
+                "Model echoed the JSON schema instead of returning data"
+            )
+
+        if "classifications" in obj:
+            for classification in obj["classifications"]:
+                if "reason" not in classification and "recommend" in classification:
+                    classification["reason"] = classification.pop("recommend")
+
         return response_model.model_validate(obj)
 
 class BaseImageCaptioningModel(BaseCaptioningModel):

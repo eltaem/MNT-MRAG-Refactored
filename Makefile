@@ -1,6 +1,6 @@
 SCRIPTS := scripts
 
-.PHONY: kill load cload ollama users qdrant iqa ciqa is cis eval ceval parse dpd
+.PHONY: kill load cload ollama users qdrant iqa ciqa is cis eval ceval parse dpd gen cgen
 
 kill:
 	bash $(SCRIPTS)/kill.sh
@@ -35,6 +35,12 @@ eval:
 
 ceval:
 	tmux attach -t eval
+
+gen:
+	bash $(SCRIPTS)/generator.sh
+
+cgen:
+	tmux attach -t gen
 
 dpd:
 	bash $(SCRIPTS)/dependencies.sh

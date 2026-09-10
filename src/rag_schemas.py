@@ -300,6 +300,12 @@ class RAGEvaluationSummary(BaseModel):
 
     average_runtime: RAGRuntime
 
+class RAGGenerationRun(BaseEvaluationArtifact):
+
+    setup: RAGEvaluationSetup
+    
+    results: list[RAGPipelineResult]
+
 class RAGEvaluationRun(BaseEvaluationArtifact):
 
     setup: RAGEvaluationSetup

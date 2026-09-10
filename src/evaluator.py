@@ -13,12 +13,13 @@ from src.rag_schemas import (
     RAGEvaluationRun,
     RAGEvaluationSample,
     RAGEvaluationSetup,
+    RAGGenerationRun,
     RAGMetrics,
     RAGPipelineResult,
     RAGRuntime,
 )
 from src.rag_pipeline import RAGPipeline
-from src.utility import logger
+from src.utility import logger, clear_gpu
 
 from src.ragas_adapter import RAGASLLMAdapter
 from ragas.metrics.collections import (
@@ -383,70 +384,224 @@ class RAGExperimentRunner:
     ):
         self.config = config
 
-    def run_single_experiment(
+    def generate_experiment(
         self,
         setup: RAGEvaluationSetup,
         num_samples: int | None = None,
+    ) -> RAGGenerationRun:
+
+        logger.info(
+            "Generating RAG experiment.",
+        )
+
+        pipeline = RAGPipeline.build(
+            setup,
+        )
+
+        results = pipeline.generate_samples(
+            limit=num_samples,
+        )
+
+        logger.info(
+            "Generated %d RAG sample(s).",
+            len(results),
+        )
+
+        return RAGGenerationRun(
+            setup=setup,
+            results=results,
+        )
+
+    def evaluate_experiment(
+        self,
+        generation_run: RAGGenerationRun,
     ) -> RAGEvaluationRun:
 
-        pipeline = RAGPipeline.build(setup)
+        logger.info(
+            "Evaluating RAG experiment.",
+        )
+
+        setup = generation_run.setup
 
         evaluation_generator = OllamaTextGenerator(
-            setup.evaluation_generator
+            setup.evaluation_generator,
         )
 
         evaluation_generator.load_pretrained()
 
-        evaluator = RAGEvaluator(
-            config=self.config,
-            embedder=pipeline.embedder,
-            generator=evaluation_generator,
-        )
+        try:
+            embedder = Embedder(
+                setup.embedder,
+            )
 
-        pipeline_results = pipeline.generate_samples(
-            limit=num_samples,
-        )
+            evaluator = RAGEvaluator(
+                config=self.config,
+                embedder=embedder,
+                generator=evaluation_generator,
+            )
 
-        results = evaluator.evaluate_many(
-            pipeline_results,
+            results = evaluator.evaluate_many(
+                generation_run.results,
+            )
+
+        finally:
+            clear_gpu()
+
+        logger.info(
+            "Evaluated %d RAG sample(s).",
+            len(results),
         )
 
         return RAGEvaluationRun(
             setup=setup,
             results=results,
         )
+    
+    def evaluate_experiment_from_json(
+        self,
+        path: str | Path,
+    ) -> RAGEvaluationRun:
 
-    def run_multiple_experiments(
+        generation_run = RAGGenerationRun.from_json(
+            path,
+        )
+
+        return self.evaluate_experiment(
+            generation_run,
+        )
+
+    def generate_multiple_experiments(
         self,
         setups: list[RAGEvaluationSetup],
         num_samples: int | None = None,
         save_dir: str | Path | None = None,
-    ) -> BenchmarkResult:
-        
-        save_dir = Path(save_dir) if save_dir is not None else None
+    ) -> list[RAGGenerationRun]:
+
+        save_dir = (
+            Path(save_dir)
+            if save_dir is not None
+            else None
+        )
 
         if save_dir is not None:
-            save_dir.mkdir(parents=True, exist_ok=True,)
+            save_dir.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
 
-        runs: list[RAGEvaluationRun] = []
+        generation_runs: list[RAGGenerationRun] = []
 
-        for index, setup in enumerate(setups, start=1,):
+        for index, setup in enumerate(
+            setups,
+            start=1,
+        ):
 
-            run = self.run_single_experiment(
+            logger.info(
+                "Generating experiment [%d/%d].",
+                index,
+                len(setups),
+            )
+
+            generation_run = self.generate_experiment(
                 setup=setup,
                 num_samples=num_samples,
             )
 
-            runs.append(run)
+            generation_runs.append(
+                generation_run,
+            )
 
             if save_dir is not None:
-                run.to_json(save_dir / "individual_experiments" / f"experiment_{index}_details.json")
-                run.save_markdown(save_dir / "individual_experiments" / f"experiment_{index}_readable.md")
+                generation_run.to_json(
+                    save_dir
+                    / f"experiment_{index:03d}.json"
+                )
 
-        benchmark = BenchmarkResult(runs=runs)
+        return generation_runs
+    
+    def evaluate_multiple_experiments(
+        self,
+        generation_runs: list[RAGGenerationRun],
+        save_dir: str | Path | None = None,
+    ) -> BenchmarkResult:
+
+        save_dir = (
+            Path(save_dir)
+            if save_dir is not None
+            else None
+        )
 
         if save_dir is not None:
-            benchmark.to_json(save_dir / "summary" / "experiments_benchmark_details.json")
-            benchmark.save_markdown(save_dir / "summary" / "experiments_benchmark_summary.md")
+            save_dir.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+        runs: list[RAGEvaluationRun] = []
+
+        for index, generation_run in enumerate(
+            generation_runs,
+            start=1,
+        ):
+
+            logger.info(
+                "Evaluating experiment [%d/%d].",
+                index,
+                len(generation_runs),
+            )
+
+            run = self.evaluate_experiment(
+                generation_run,
+            )
+
+            runs.append(
+                run,
+            )
+
+            if save_dir is not None:
+                run.to_json(
+                    save_dir
+                    / f"experiment_{index:03d}_details.json"
+                )
+
+                run.save_markdown(
+                    save_dir
+                    / f"experiment_{index:03d}_readable.md"
+                )
+
+        benchmark = BenchmarkResult(
+            runs=runs,
+        )
+
+        if save_dir is not None:
+            benchmark.to_json(
+                save_dir
+                / "experiments_benchmark_details.json"
+            )
+
+            benchmark.save_markdown(
+                save_dir
+                / "experiments_benchmark_summary.md"
+            )
 
         return benchmark
+    
+    def evaluate_multiple_experiments_from_dir(
+        self,
+        directory: str | Path,
+        save_dir: str | Path | None = None,
+    ) -> BenchmarkResult:
+
+        directory = Path(directory)
+
+        paths = sorted(directory.glob("*.json"))
+
+        generation_runs = [
+            RAGGenerationRun.from_json(path)
+            for path in paths
+        ]
+
+        return self.evaluate_multiple_experiments(
+            generation_runs=generation_runs,
+            save_dir=save_dir,
+        )

@@ -7,7 +7,7 @@ from typing import Generic, TypeVar
 import sacrebleu
 from rouge_score import rouge_scorer
 from src.rag_schemas import (
-    BaseEvaluationArtifact,
+    BaseArtifact,
     BenchmarkResult,
     RAGEvaluationResult,
     RAGEvaluationRun,
@@ -39,7 +39,7 @@ from src.configs import (
 
 ResultT = TypeVar(
     "ResultT",
-    bound=BaseEvaluationArtifact,
+    bound=BaseArtifact,
 )
 
 class BaseEvaluator(
@@ -514,7 +514,12 @@ class RAGExperimentRunner:
             if save_dir is not None:
                 generation_run.to_json(
                     save_dir
-                    / f"experiment_{index:03d}.json"
+                    / f"experiment_{index:03d}_details.json"
+                )
+
+                generation_run.to_markdown(
+                    save_dir
+                    / f"experiment_{index:03d}_readable.md"
                 )
 
         return generation_runs

@@ -17,7 +17,7 @@ from src.configs import (
 )
 from src.utility import escape_md, generate_collection_name, load_model, load_models, save_model, save_models
 
-class BaseEvaluationArtifact(
+class BaseArtifact(
     BaseModel,
     ABC,
 ):
@@ -162,12 +162,75 @@ class RAGRuntime(BaseModel):
             + self.metric_evaluation_time
         )
 
-class RAGPipelineResult(BaseModel):
+class RAGPipelineResult(BaseArtifact):
+
     sample: RAGEvaluationSample
     retrieval_time: float
     generation_time: float
 
-class RAGEvaluationResult(BaseEvaluationArtifact):
+    def to_markdown(self) -> str:
+        """Generate markdown report for a single RAG generation result."""
+
+        lines: list[str] = []
+
+        lines.append(
+            f"## Question: {self.sample.qa_id}\n"
+        )
+
+        lines.append("**User Question:**")
+        lines.append(
+            f"\n{escape_md(self.sample.question)}\n"
+        )
+
+        lines.append("**Generated Answer:**")
+        lines.append(
+            f"\n{escape_md(self.sample.generated_answer)}\n"
+        )
+
+        lines.append("**Ground Truth:**")
+        lines.append(
+            f"\n{escape_md(self.sample.ground_truth)}\n"
+        )
+
+        lines.append(
+            f"**Retrieved Chunks "
+            f"({len(self.sample.retrieved_chunks)}):**\n"
+        )
+
+        for i, chunk in enumerate(
+            self.sample.retrieved_chunks,
+            start=1,
+        ):
+            lines.append(
+                f"{i}. {escape_md(chunk)}\n"
+            )
+
+        lines.append("\n### Runtime\n")
+
+        lines.append(
+            "| Retrieval Time | Generation Time | Total Time |"
+        )
+
+        lines.append(
+            "|:---:|:---:|:---:|"
+        )
+
+        total_time = (
+            self.retrieval_time
+            + self.generation_time
+        )
+
+        lines.append(
+            f"| {self.retrieval_time:.4f} s | "
+            f"{self.generation_time:.4f} s | "
+            f"{total_time:.4f} s |"
+        )
+
+        lines.append("\n---\n")
+
+        return "\n".join(lines)
+
+class RAGEvaluationResult(BaseArtifact):
 
     sample: RAGEvaluationSample
     metrics: RAGMetrics
@@ -177,10 +240,8 @@ class RAGEvaluationResult(BaseEvaluationArtifact):
         """Generate markdown report for a single RAG evaluation result."""
         lines: list[str] = []
 
-        # ─── Header ───
         lines.append(f"## Question: {self.sample.qa_id}\n")
 
-        # ─── Question & Answers ───
         lines.append("**User Question:**")
         lines.append(f"\n{escape_md(self.sample.question)}\n")
 
@@ -190,18 +251,12 @@ class RAGEvaluationResult(BaseEvaluationArtifact):
         lines.append("\n**Ground Truth:**")
         lines.append(f"\n{escape_md(self.sample.ground_truth)}\n")
 
-        # ─── Retrieved Chunks ───
         lines.append(
             f"**Retrieved Chunks ({len(self.sample.retrieved_chunks)}):**\n"
         )
 
         for i, chunk in enumerate(self.sample.retrieved_chunks, 1):
-            preview = (
-                chunk[:200] + "..."
-                if len(chunk) > 200
-                else chunk
-            )
-            lines.append(f"{i}. {escape_md(preview)}\n")
+            lines.append(f"{i}. {escape_md(chunk)}\n")
 
         lines.append("")
 
@@ -300,13 +355,66 @@ class RAGEvaluationSummary(BaseModel):
 
     average_runtime: RAGRuntime
 
-class RAGGenerationRun(BaseEvaluationArtifact):
+class RAGGenerationRun(BaseArtifact):
 
     setup: RAGEvaluationSetup
     
     results: list[RAGPipelineResult]
 
-class RAGEvaluationRun(BaseEvaluationArtifact):
+    def to_markdown(self) -> str:
+        """Generate markdown report for a RAG generation run."""
+
+        lines: list[str] = []
+
+        lines.append("# RAG Generation Report\n")
+
+        # =====================================================
+        # Experiment Setup
+        # =====================================================
+
+        lines.append("## Generation Setup\n")
+
+        lines.append(
+            f"- **Embedder:** "
+            f"`{self.setup.embedder.model_name}`"
+        )
+
+        lines.append(
+            f"- **Modality:** "
+            f"`{self.setup.source_retriever.modality.display_name}`"
+        )
+
+        lines.append(
+            f"- **Chunker:** "
+            f"`{self.setup.chunker.name}`"
+        )
+
+        lines.append(
+            f"- **Answer Generator:** "
+            f"`{self.setup.answer_generator.model_name}`"
+        )
+
+        lines.append("\n---\n")
+
+        # =====================================================
+        # Individual Results
+        # =====================================================
+
+        lines.append("## Generated Results\n")
+
+        if not self.results:
+            lines.append(
+                "No generation results available.\n"
+            )
+        else:
+            for result in self.results:
+                lines.append(
+                    result.to_markdown()
+                )
+
+        return "\n".join(lines)
+
+class RAGEvaluationRun(BaseArtifact):
 
     setup: RAGEvaluationSetup
 
@@ -466,7 +574,7 @@ class RAGEvaluationRun(BaseEvaluationArtifact):
 
         return "\n".join(lines)
 
-class BenchmarkResult(BaseEvaluationArtifact):
+class BenchmarkResult(BaseArtifact):
 
     runs: list[RAGEvaluationRun]
 

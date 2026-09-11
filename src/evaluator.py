@@ -415,6 +415,7 @@ class RAGExperimentRunner:
     def evaluate_experiment(
         self,
         generation_run: RAGGenerationRun,
+        checkpoint_path: str | Path | None = None,
     ) -> RAGEvaluationRun:
 
         logger.info(
@@ -423,6 +424,25 @@ class RAGExperimentRunner:
 
         setup = generation_run.setup
 
+        evaluated_results: list[RAGEvaluationResult] = []
+
+        # Resume from checkpoint if available.
+        if checkpoint_path is not None:
+            checkpoint_path = Path(checkpoint_path)
+
+            if checkpoint_path.exists():
+                checkpoint = RAGEvaluationRun.from_json(
+                    checkpoint_path,
+                )
+
+                evaluated_results = checkpoint.results
+
+                logger.info(
+                    "Resuming evaluation from checkpoint: "
+                    "%d QA sample(s) already evaluated.",
+                    len(evaluated_results),
+                )
+        
         evaluation_generator = OllamaTextGenerator(
             setup.evaluation_generator,
         )
@@ -440,22 +460,51 @@ class RAGExperimentRunner:
                 generator=evaluation_generator,
             )
 
-            results = evaluator.evaluate_many(
-                generation_run.results,
+            remaining_results = generation_run.results[
+                len(evaluated_results):
+            ]
+
+            for index, pipeline_result in enumerate(
+                remaining_results,
+                start=len(evaluated_results) + 1,
+            ):
+                logger.info(
+                    "Evaluating QA [%d/%d].",
+                    index,
+                    len(generation_run.results),
+                )
+
+                result = evaluator.evaluate(
+                    pipeline_result,
+                )
+
+                evaluated_results.append(
+                    result,
+                )
+
+                # Checkpoint after every successful QA.
+                if checkpoint_path is not None:
+                    checkpoint = RAGEvaluationRun(
+                        setup=setup,
+                        results=evaluated_results,
+                    )
+
+                    checkpoint.to_json(
+                        checkpoint_path,
+                    )
+
+            logger.info(
+                "Evaluated %d RAG sample(s).",
+                len(evaluated_results),
+            )
+
+            return RAGEvaluationRun(
+                setup=setup,
+                results=evaluated_results,
             )
 
         finally:
             clear_gpu()
-
-        logger.info(
-            "Evaluated %d RAG sample(s).",
-            len(results),
-        )
-
-        return RAGEvaluationRun(
-            setup=setup,
-            results=results,
-        )
     
     def evaluate_experiment_from_json(
         self,
@@ -548,20 +597,36 @@ class RAGExperimentRunner:
             generation_runs,
             start=1,
         ):
-
             logger.info(
                 "Evaluating experiment [%d/%d].",
                 index,
                 len(generation_runs),
             )
 
-            run = self.evaluate_experiment(
-                generation_run,
-            )
+            checkpoint_path = None
 
-            runs.append(
-                run,
-            )
+            if save_dir is not None:
+                checkpoint_path = (
+                    save_dir
+                    / f".checkpoint_experiment_{index:03d}.json"
+                )
+
+            try:
+                run = self.evaluate_experiment(
+                    generation_run=generation_run,
+                    checkpoint_path=checkpoint_path,
+                )
+
+            except Exception:
+                logger.error(
+                    "Experiment [%d] failed. "
+                    "Checkpoint preserved for resume.",
+                    index,
+                )
+
+                raise
+
+            runs.append(run)
 
             if save_dir is not None:
                 run.to_json(
@@ -573,6 +638,18 @@ class RAGExperimentRunner:
                     save_dir
                     / f"experiment_{index:03d}_readable.md"
                 )
+
+                # Evaluation completed successfully.
+                if checkpoint_path is not None:
+                    checkpoint_path.unlink(
+                        missing_ok=True,
+                    )
+
+                    logger.info(
+                        "Removed checkpoint for completed "
+                        "experiment [%d].",
+                        index,
+                    )
 
         benchmark = BenchmarkResult(
             runs=runs,

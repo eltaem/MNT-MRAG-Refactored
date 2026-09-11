@@ -566,7 +566,7 @@ class RAGExperimentRunner:
                     / f"experiment_{index:03d}_details.json"
                 )
 
-                generation_run.to_markdown(
+                generation_run.save_markdown(
                     save_dir
                     / f"experiment_{index:03d}_readable.md"
                 )

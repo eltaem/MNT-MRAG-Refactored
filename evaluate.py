@@ -9,7 +9,6 @@ from src.configs import (
     RAGEvaluatorConfig,
 )
 
-
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 evaluated_dir = Path("outputs") / f"run-{timestamp}" / "evaluated"
 

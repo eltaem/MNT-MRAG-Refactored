@@ -247,7 +247,7 @@ class RAGEvaluator(
     # Internal Async API
     # =====================================================
 
-    async def _evaluate(
+    async def evaluate_async(
         self,
         pipeline_result: RAGPipelineResult,
     ) -> RAGEvaluationResult:
@@ -311,7 +311,7 @@ class RAGEvaluator(
         )
 
 
-    async def _evaluate_many(
+    async def evaluate_many_async(
         self,
         pipeline_results: list[RAGPipelineResult],
     ) -> list[RAGEvaluationResult]:
@@ -337,7 +337,7 @@ class RAGEvaluator(
                 pipeline_result.sample.qa_id,
             )
 
-            result = await self._evaluate(
+            result = await self.evaluate_async(
                 pipeline_result,
             )
 
@@ -360,7 +360,7 @@ class RAGEvaluator(
     ) -> RAGEvaluationResult:
 
         return asyncio.run(
-            self._evaluate(
+            self.evaluate_async(
                 pipeline_result,
             )
         )
@@ -371,7 +371,7 @@ class RAGEvaluator(
     ) -> list[RAGEvaluationResult]:
 
         return asyncio.run(
-            self._evaluate_many(
+            self.evaluate_many_async(
                 pipeline_results,
             )
         )
@@ -411,13 +411,12 @@ class RAGExperimentRunner:
             setup=setup,
             results=results,
         )
-
-    def evaluate_experiment(
+    async def evaluate_experiment_async(
         self,
         generation_run: RAGGenerationRun,
         checkpoint_path: str | Path | None = None,
     ) -> RAGEvaluationRun:
-
+        
         logger.info(
             "Evaluating RAG experiment.",
         )
@@ -474,7 +473,7 @@ class RAGExperimentRunner:
                     len(generation_run.results),
                 )
 
-                result = evaluator.evaluate(
+                result = await evaluator.evaluate_async(
                     pipeline_result,
                 )
 
@@ -505,6 +504,19 @@ class RAGExperimentRunner:
 
         finally:
             clear_gpu()
+        
+    def evaluate_experiment(
+        self,
+        generation_run: RAGGenerationRun,
+        checkpoint_path: str | Path | None = None,
+    ) -> RAGEvaluationRun:
+
+        return asyncio.run(
+            self.evaluate_experiment_async(
+                generation_run=generation_run,
+                checkpoint_path=checkpoint_path,
+            )
+        )
     
     def evaluate_experiment_from_json(
         self,
@@ -573,7 +585,7 @@ class RAGExperimentRunner:
 
         return generation_runs
     
-    def evaluate_multiple_experiments(
+    async def evaluate_multiple_experiments_async(
         self,
         generation_runs: list[RAGGenerationRun],
         save_dir: str | Path | None = None,
@@ -603,35 +615,46 @@ class RAGExperimentRunner:
                 len(generation_runs),
             )
 
-            checkpoint_path = None
-
             if save_dir is not None:
+                final_path = (
+                    save_dir
+                    / f"experiment_{index:03d}_details.json"
+                )
+
                 checkpoint_path = (
                     save_dir
                     / f".checkpoint_experiment_{index:03d}.json"
                 )
 
-            try:
-                run = self.evaluate_experiment(
-                    generation_run=generation_run,
-                    checkpoint_path=checkpoint_path,
-                )
+                # Experiment already completed.
+                if final_path.exists():
+                    logger.info(
+                        "Experiment [%d] already completed. "
+                        "Loading saved result.",
+                        index,
+                    )
 
-            except Exception:
-                logger.error(
-                    "Experiment [%d] failed. "
-                    "Checkpoint preserved for resume.",
-                    index,
-                )
+                    run = RAGEvaluationRun.from_json(
+                        final_path,
+                    )
 
-                raise
+                    runs.append(run)
+
+                    continue
+
+            else:
+                checkpoint_path = None
+
+            run = await self.evaluate_experiment_async(
+                generation_run=generation_run,
+                checkpoint_path=checkpoint_path,
+            )
 
             runs.append(run)
 
             if save_dir is not None:
                 run.to_json(
-                    save_dir
-                    / f"experiment_{index:03d}_details.json"
+                    final_path,
                 )
 
                 run.save_markdown(
@@ -639,17 +662,16 @@ class RAGExperimentRunner:
                     / f"experiment_{index:03d}_readable.md"
                 )
 
-                # Evaluation completed successfully.
-                if checkpoint_path is not None:
-                    checkpoint_path.unlink(
-                        missing_ok=True,
-                    )
+                # The experiment completed successfully,
+                # so its checkpoint is no longer needed.
+                checkpoint_path.unlink(
+                    missing_ok=True,
+                )
 
-                    logger.info(
-                        "Removed checkpoint for completed "
-                        "experiment [%d].",
-                        index,
-                    )
+                logger.info(
+                    "Experiment [%d] completed successfully.",
+                    index,
+                )
 
         benchmark = BenchmarkResult(
             runs=runs,
@@ -667,6 +689,19 @@ class RAGExperimentRunner:
             )
 
         return benchmark
+
+    def evaluate_multiple_experiments(
+        self,
+        generation_runs: list[RAGGenerationRun],
+        save_dir: str | Path | None = None,
+    ) -> BenchmarkResult:
+
+        return asyncio.run(
+            self.evaluate_multiple_experiments_async(
+                generation_runs=generation_runs,
+                save_dir=save_dir,
+            )
+        )
     
     def evaluate_multiple_experiments_from_dir(
         self,
@@ -676,7 +711,7 @@ class RAGExperimentRunner:
 
         directory = Path(directory)
 
-        paths = sorted(directory.glob("*.json"))
+        paths = sorted(directory.glob("experiment_*_details.json"))
 
         generation_runs = [
             RAGGenerationRun.from_json(path)

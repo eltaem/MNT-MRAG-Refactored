@@ -10,7 +10,8 @@ from src.configs import (
 )
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-evaluated_dir = Path("outputs") / f"run-{timestamp}" / "evaluated"
+# evaluated_dir = Path("outputs") / f"run-{timestamp}" / "evaluated"
+evaluated_dir = "outputs/run-20260912_112917/evaluated"
 
 def evaluate_embedder_combination():
 
@@ -18,7 +19,7 @@ def evaluate_embedder_combination():
         config=RAGEvaluatorConfig(),
     )
     
-    rag_experiment_runner.evaluate_multiple_experiments_from_dir(directory="", save_dir=evaluated_dir)
+    rag_experiment_runner.evaluate_multiple_experiments_from_dir(directory="outputs/run-20260911_160350/generated", save_dir=evaluated_dir)
 
 if __name__ == "__main__":
     evaluate_embedder_combination()

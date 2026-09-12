@@ -24,7 +24,7 @@ class BaseArtifact(
 
     model_config = ConfigDict(
         frozen=True,
-        extra="forbid",
+        extra="ignore",
     )
 
     @abstractmethod

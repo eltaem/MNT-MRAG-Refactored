@@ -27,7 +27,7 @@ DEFAULT_FRONT_MATTER_PATTERNS: list[str] = [
 class BaseConfig(BaseModel):
 
     model_config = ConfigDict(
-        extra="forbid",
+        extra="ignore",
         validate_assignment=True,
     )
 

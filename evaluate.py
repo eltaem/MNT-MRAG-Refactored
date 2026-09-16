@@ -30,11 +30,13 @@ def evaluate_embedder_combination():
 def evaluate_statistics():
     benchmark_path = "outputs/run-20260912_112917/evaluated/experiments_benchmark_details.json"
     benchmark_result = BenchmarkResult.from_json(benchmark_path)
-    statistical_evaluator = RAGStatisticalEvaluator(RAGStatisticalEvaluatorConfig())
+    statistical_evaluator_config = RAGStatisticalEvaluatorConfig()
+    statistical_evaluator = RAGStatisticalEvaluator(statistical_evaluator_config)
     statistical_result = statistical_evaluator.evaluate(benchmark_result)
 
     statistically_evaluated_dir = Path("outputs") / f"run-{timestamp}" / "statistically_evaluated"
 
+    statistical_evaluator_config.to_json(statistically_evaluated_dir / "statistical_evaluation_config.json")
     statistical_result.to_json(statistically_evaluated_dir / "statistical_summary_details.json")
     statistical_result.save_markdown(statistically_evaluated_dir / "statistical_summary_readable.md")
 

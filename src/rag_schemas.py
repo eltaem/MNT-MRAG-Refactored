@@ -1008,3 +1008,142 @@ class BenchmarkResult(BaseArtifact):
         )
 
         return "\n".join(lines)
+
+class StatisticalTestResult(
+    BaseArtifact,
+):
+    experiment_a: int
+    experiment_b: int
+    metric: str
+
+    test: str
+
+    statistic: float
+    p_value: float
+
+    adjusted_p_value: float | None = None
+
+    alpha: float
+    significant: bool
+
+    def to_markdown(self) -> str:
+        adjusted_p_value = (
+            f"{self.adjusted_p_value:.4f}"
+            if self.adjusted_p_value is not None
+            else "-"
+        )
+
+        return (
+            f"| {self.experiment_a} vs "
+            f"{self.experiment_b} | "
+            f"{self.metric} | "
+            f"{self.test} | "
+            f"{self.statistic:.4f} | "
+            f"{self.p_value:.4f} | "
+            f"{adjusted_p_value} | "
+            f"{'Yes' if self.significant else 'No'} |"
+        )
+
+class StatisticalExperiment(BaseModel):
+    embedder: str
+    modality: str
+
+class RAGStatisticalEvaluationResult(
+    BaseArtifact,
+):
+    experiment_mapping: dict[int, StatisticalExperiment]
+    results: list[StatisticalTestResult]
+
+    def to_markdown(self) -> str:
+        lines: list[str] = []
+
+        lines.append(
+            "# RAG Statistical Evaluation Report\n"
+        )
+
+        lines.append(
+            "## Statistical Tests\n"
+        )
+
+        lines.append("### Experiment Mapping\n")
+        lines.append("| Experiment | Embedder | Modality |")
+        lines.append("|:---:|:---|:---|")
+
+        for index, experiment in self.experiment_mapping.items():
+            lines.append(
+                f"| {index} | {experiment.embedder} | "
+                f"{experiment.modality} |"
+            )
+
+        lines.append("\n## Pairwise Tests\n")
+
+        grouped_results: dict[
+            tuple[int, int],
+            list[StatisticalTestResult],
+        ] = {}
+
+        for result in self.results:
+            pair = (
+                result.experiment_a,
+                result.experiment_b,
+            )
+            grouped_results.setdefault(
+                pair,
+                [],
+            ).append(result)
+
+        for (experiment_a, experiment_b), results in sorted(
+            grouped_results.items()
+        ):
+            experiment_a_details = self.experiment_mapping.get(
+                experiment_a
+            )
+            experiment_b_details = self.experiment_mapping.get(
+                experiment_b
+            )
+
+            lines.append(
+                f"### Experiment {experiment_a} vs "
+                f"Experiment {experiment_b}\n"
+            )
+
+            if experiment_a_details is not None:
+                lines.append(
+                    f"- **Experiment {experiment_a}:** "
+                    f"{experiment_a_details.embedder} "
+                    f"({experiment_a_details.modality})"
+                )
+
+            if experiment_b_details is not None:
+                lines.append(
+                    f"- **Experiment {experiment_b}:** "
+                    f"{experiment_b_details.embedder} "
+                    f"({experiment_b_details.modality})"
+                )
+
+            lines.append("")
+            lines.append(
+                "| Metric | Test | Statistic | p-value | "
+                "Adjusted p-value | Significant |"
+            )
+            lines.append(
+                "|:---|:---:|---:|---:|---:|:---:|"
+            )
+
+            for result in results:
+                adjusted_p_value = (
+                    f"{result.adjusted_p_value:.4f}"
+                    if result.adjusted_p_value is not None
+                    else "-"
+                )
+                lines.append(
+                    f"| {result.metric} | {result.test} | "
+                    f"{result.statistic:.4f} | "
+                    f"{result.p_value:.4f} | "
+                    f"{adjusted_p_value} | "
+                    f"{'**Yes**' if result.significant else 'No'} |"
+                )
+
+            lines.append("")
+
+        return "\n".join(lines)

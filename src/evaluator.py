@@ -1,9 +1,12 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
+from itertools import combinations
+import math
 from pathlib import Path
 import time
 from typing import Generic, TypeVar
+import numpy as np
 import sacrebleu
 from rouge_score import rouge_scorer
 from src.rag_schemas import (
@@ -17,6 +20,9 @@ from src.rag_schemas import (
     RAGMetrics,
     RAGPipelineResult,
     RAGRuntime,
+    RAGStatisticalEvaluationResult,
+    StatisticalExperiment,
+    StatisticalTestResult,
 )
 from src.rag_pipeline import RAGPipeline
 from src.utility import logger, clear_gpu
@@ -35,7 +41,11 @@ from src.embedder import Embedder
 from src.configs import (
     BaseEvaluatorConfig,
     RAGEvaluatorConfig,
+    RAGStatisticalEvaluatorConfig,
 )
+
+from scipy.stats import wilcoxon
+from statsmodels.stats.multitest import multipletests
 
 ResultT = TypeVar(
     "ResultT",
@@ -376,6 +386,278 @@ class RAGEvaluator(
             )
         )
 
+class RAGStatisticalEvaluator(
+    BaseEvaluator[RAGStatisticalEvaluationResult],
+):
+
+    def __init__(
+        self,
+        config: RAGStatisticalEvaluatorConfig,
+    ):
+        super().__init__(config)
+
+        self.config = config
+
+    def _align_results(
+        self,
+        run_a: RAGEvaluationRun,
+        run_b: RAGEvaluationRun,
+    ) -> tuple[
+        list[RAGEvaluationResult],
+        list[RAGEvaluationResult]
+        ]:
+
+        results_a = {
+            result.sample.qa_id: result
+            for result in run_a.results
+        }
+
+        results_b = {
+            result.sample.qa_id: result
+            for result in run_b.results
+        }
+
+        common_ids = sorted(
+            results_a.keys()
+            & results_b.keys()
+        )
+
+        if not common_ids:
+            raise ValueError(
+                "Experiments have no common QA samples."
+            )
+
+        aligned_a = [
+            results_a[qa_id]
+            for qa_id in common_ids
+        ]
+
+        aligned_b = [
+            results_b[qa_id]
+            for qa_id in common_ids
+        ]
+
+        return aligned_a, aligned_b
+
+    def _wilcoxon(
+        self,
+        values_a: list[float],
+        values_b: list[float],
+    ) -> tuple[float, float]:
+
+        if len(values_a) != len(values_b):
+            raise ValueError(
+                "Wilcoxon samples must have equal length."
+            )
+
+        statistic, p_value = wilcoxon(
+            values_a,
+            values_b,
+            alternative="two-sided",
+        )
+
+        return (
+            float(statistic),
+            float(p_value),
+        )
+
+    def _apply_correction(
+        self,
+        results: list[StatisticalTestResult],
+    ) -> list[StatisticalTestResult]:
+
+        if not results:
+            return results
+
+        if self.config.correction == "none":
+            return results
+
+        method_map = {
+            "bonferroni": "bonferroni",
+            "holm": "holm",
+            "fdr_bh": "fdr_bh",
+        }
+
+        method = method_map[
+            self.config.correction
+        ]
+
+        p_values = np.array(
+            [
+                result.p_value
+                for result in results
+            ]
+        )
+
+        _, adjusted_p_values, _, _ = multipletests(
+            p_values,
+            alpha=self.config.alpha,
+            method=method,
+        )
+
+        corrected: list[StatisticalTestResult] = []
+
+        for result, adjusted_p_value in zip(
+            results,
+            adjusted_p_values,
+        ):
+            corrected.append(
+                result.model_copy(
+                    update={
+                        "adjusted_p_value": float(
+                            adjusted_p_value
+                        ),
+                        "significant": (
+                            adjusted_p_value
+                            < self.config.alpha
+                        ),
+                    },
+                )
+            )
+
+        return corrected
+
+    def _extract_metric(
+        self,
+        results: list[RAGEvaluationResult],
+        metric: str,
+    ) -> list[float]:
+
+        values: list[float] = []
+
+        for result in results:
+            value = getattr(
+                result.metrics,
+                metric,
+                None,
+            )
+
+            if value is None:
+                raise ValueError(
+                    f"Metric '{metric}' does not exist "
+                    f"in RAGMetrics."
+                )
+
+            values.append(value)
+
+        return values
+
+    def _evaluate_pair(
+        self,
+        run_a: RAGEvaluationRun,
+        run_b: RAGEvaluationRun,
+        experiment_a: int,
+        experiment_b: int,
+    ) -> list[StatisticalTestResult]:
+
+        aligned_a, aligned_b = self._align_results(
+            run_a,
+            run_b,
+        )
+
+        results: list[StatisticalTestResult] = []
+
+        for metric in self.config.metrics:
+
+            values_a = self._extract_metric(
+                aligned_a,
+                metric,
+            )
+
+            values_b = self._extract_metric(
+                aligned_b,
+                metric,
+            )
+
+            statistic, p_value = self._wilcoxon(
+                values_a,
+                values_b,
+            )
+
+            results.append(
+                StatisticalTestResult(
+                    experiment_a=experiment_a,
+                    experiment_b=experiment_b,
+                    metric=metric,
+                    test="wilcoxon",
+                    statistic=statistic,
+                    p_value=p_value,
+                    alpha=self.config.alpha,
+                    significant=(
+                        p_value
+                        < self.config.alpha
+                    ),
+                )
+            )
+
+        return results
+
+    def evaluate(
+        self,
+        benchmark: BenchmarkResult,
+    ) -> RAGStatisticalEvaluationResult:
+
+        logger.info(
+            "Running statistical evaluation on %d experiment(s).",
+            len(benchmark.runs),
+        )
+
+        results: list[StatisticalTestResult] = []
+
+        for (
+            index_a,
+            index_b,
+        ) in combinations(
+            range(len(benchmark.runs)),
+            2,
+        ):
+            run_a = benchmark.runs[index_a]
+            run_b = benchmark.runs[index_b]
+
+            logger.info(
+                "Comparing experiment [%d] vs [%d].",
+                index_a + 1,
+                index_b + 1,
+            )
+
+            results.extend(
+                self._evaluate_pair(
+                    run_a=run_a,
+                    run_b=run_b,
+                    experiment_a=index_a + 1,
+                    experiment_b=index_b + 1,
+                )
+            )
+
+        results = self._apply_correction(
+            results,
+        )
+
+        experiment_mapping = {
+            index + 1: StatisticalExperiment(
+                embedder=run.setup.embedder.model_name,
+                modality=run.setup.source_retriever.modality.display_name,
+            )
+            for index, run in enumerate(benchmark.runs)
+        }
+
+        logger.info("Finished comparing %d pair of experiments", math.comb(len(benchmark.runs), 2))
+
+        return RAGStatisticalEvaluationResult(
+            experiment_mapping=experiment_mapping,
+            results=results,
+        )
+
+    def evaluate_many(
+        self,
+        benchmarks: list[BenchmarkResult],
+    ) -> list[RAGStatisticalEvaluationResult]:
+
+        return [
+            self.evaluate(benchmark)
+            for benchmark in benchmarks
+        ]
+
 class RAGExperimentRunner:
 
     def __init__(
@@ -687,6 +969,8 @@ class RAGExperimentRunner:
                 save_dir
                 / "experiments_benchmark_summary.md"
             )
+
+        logger.info("All Experiment completed successfully.")
 
         return benchmark
 

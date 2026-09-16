@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Literal
 from dotenv import load_dotenv
 from pydantic import (
     BaseModel,
@@ -772,3 +773,35 @@ class RAGPipelineConfig(BaseConfig):
     separator: str = "\n\n"
 
     include_chunk_separator: str = "\n\n---\n\n"
+
+class RAGStatisticalEvaluatorConfig(
+    BaseEvaluatorConfig,
+):
+    test: Literal["wilcoxon"] = "wilcoxon"
+
+    metrics: list[str] = Field(
+        default_factory=lambda: [
+            "bleu",
+            "rouge1",
+            "rouge2",
+            "rougeL",
+            "context_precision",
+            "context_recall",
+            "faithfulness",
+            "answer_relevancy",
+            "semantic_similarity",
+        ],
+    )
+
+    comparisons: list[tuple[int, int]] = Field(
+        default_factory=list,
+    )
+
+    alpha: float = 0.05
+
+    correction: Literal[
+        "none",
+        "bonferroni",
+        "holm",
+        "fdr_bh",
+    ] = "holm"

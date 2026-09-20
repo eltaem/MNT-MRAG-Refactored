@@ -228,3 +228,4 @@ outputs/*
 data/test
 .qdrant-initialized
 storage
+flowcharts

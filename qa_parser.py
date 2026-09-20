@@ -10,6 +10,7 @@ from src.utility import (
     load_json,
     load_models,
     save_models,
+    logger
 )
 from src.vector_store import SearchResult
 
@@ -273,12 +274,12 @@ def parse_qa():
         STORAGE_CONFIG.qa_raw_json
     )
 
-    print(
+    logger.info(
         f"Total QA: {len(qa_items)}"
     )
 
     if STORAGE_CONFIG.qa_json.exists():
-        print(
+        logger.info(
             "Parsed QA via JSON already exists at",
             STORAGE_CONFIG.qa_json.relative_to(
                 Path.cwd()
@@ -289,7 +290,7 @@ def parse_qa():
             qa_items,
             STORAGE_CONFIG.qa_json,
         )
-        print(
+        logger.info(
             "Saved parsed QA via JSON to",
             STORAGE_CONFIG.qa_json.relative_to(
                 Path.cwd()
@@ -297,7 +298,7 @@ def parse_qa():
         )
     
     if STORAGE_CONFIG.qa_csv.exists():
-        print(
+        logger.info(
             "Parsed QA via csv already exists at",
             STORAGE_CONFIG.qa_csv.relative_to(
                 Path.cwd()
@@ -308,7 +309,7 @@ def parse_qa():
                 qa_items,
                 STORAGE_CONFIG.qa_csv,
             )
-        print(
+        logger.info(
             "Saved parsed QA via csv to",
             STORAGE_CONFIG.qa_csv.relative_to(
                 Path.cwd()

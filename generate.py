@@ -58,12 +58,11 @@ def generate_embedder_combination():
             answer_generator=OllamaTextGeneratorConfig(
                 model_name="qwen3.5:9b",
                 system_prompt = (
-                    "You are a helpful AI assistant. "
-                    "Generate clear, accurate, concise, and well-structured responses "
-                    "in {language}. You will be given retrieved context along with the prompt, "
-                    "use it as supporting evidence to inform and strengthen your answer where relevant. "
-                    "Do not fabricate facts or speculate. Answer using your own knowledge and reasoning "
-                    "as needed, incorporating the context where it helps rather than depending on it exclusively."
+                    "ROLE: You are a helpful Medical Nutrition Therapy AI assistant. "
+                    "CONTEXT: Use the retrieved context as supporting evidence. Combine it with your own "
+                    "knowledge and reasoning when relevant. Do not fabricate or speculate. "
+                    "TASK: Answer the user's question clearly, accurately, and directly in {language}. "
+                    "OUTPUT: Provide a concise, well-structured response of two to four sentences. "
                 ),
                 backend=OllamaBackendConfig(),
                 num_predict=512,

@@ -7,10 +7,9 @@ from pydantic import (
     ConfigDict,
     Field,
     computed_field,
-    model_validator,
 )
 from enum import StrEnum
-from src.utility import LogLevel, Modality, load_model, sanitize_name, save_model
+from src.utility import Modality, load_model, sanitize_name, save_model
 
 class TextMergeMode(StrEnum):
     PAGE = "page"
@@ -774,11 +773,9 @@ class RAGPipelineConfig(BaseConfig):
 
     include_chunk_separator: str = "\n\n---\n\n"
 
-class RAGStatisticalEvaluatorConfig(
+class RAGPairStatisticalEvaluatorConfig(
     BaseEvaluatorConfig,
 ):
-    test: Literal["wilcoxon"] = "wilcoxon"
-
     metrics: list[str] = Field(
         default_factory=lambda: [
             "bleu",
@@ -793,8 +790,30 @@ class RAGStatisticalEvaluatorConfig(
         ],
     )
 
-    comparisons: list[tuple[int, int]] = Field(
-        default_factory=list,
+    alpha: float = 0.05
+
+    correction: Literal[
+        "none",
+        "bonferroni",
+        "holm",
+        "fdr_bh",
+    ] = "holm"
+
+class RAGMultiStatisticalEvaluatorConfig(
+    BaseEvaluatorConfig,
+):
+    metrics: list[str] = Field(
+        default_factory=lambda: [
+            "bleu",
+            "rouge1",
+            "rouge2",
+            "rougeL",
+            "context_precision",
+            "context_recall",
+            "faithfulness",
+            "answer_relevancy",
+            "semantic_similarity",
+        ],
     )
 
     alpha: float = 0.05

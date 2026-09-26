@@ -2,7 +2,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from itertools import combinations
-import math
 from pathlib import Path
 import time
 from typing import Generic, TypeVar
@@ -20,7 +19,8 @@ from src.rag_schemas import (
     RAGMetrics,
     RAGPipelineResult,
     RAGRuntime,
-    RAGStatisticalEvaluationResult,
+    RAGPairStatisticalEvaluationResult,
+    RAGMultiStatisticalEvaluationResult,
     StatisticalExperiment,
     StatisticalTestResult,
 )
@@ -41,16 +41,41 @@ from src.embedder import Embedder
 from src.configs import (
     BaseEvaluatorConfig,
     RAGEvaluatorConfig,
-    RAGStatisticalEvaluatorConfig,
+    RAGMultiStatisticalEvaluatorConfig,
+    RAGPairStatisticalEvaluatorConfig,
 )
 
-from scipy.stats import wilcoxon
+from scipy.stats import (
+    friedmanchisquare,
+    wilcoxon,
+    )
 from statsmodels.stats.multitest import multipletests
 
 ResultT = TypeVar(
     "ResultT",
     bound=BaseArtifact,
 )
+
+def _build_experiment_mapping(
+    runs: list[RAGEvaluationRun],
+) -> dict[int, StatisticalExperiment]:
+    """
+    Build the {index -> (embedder, modality)} mapping used to label
+    experiments in a statistical evaluation report. Indices are
+    1-based to match the experiment numbering used by the pairwise
+    and omnibus evaluators.
+    """
+
+    return {
+        index: StatisticalExperiment(
+            embedder=run.setup.embedder.model_name,
+            modality=run.setup.source_retriever.modality.display_name,
+        )
+        for index, run in enumerate(
+            runs,
+            start=1,
+        )
+    }
 
 class BaseEvaluator(
     ABC,
@@ -220,7 +245,7 @@ class RAGEvaluator(
         ragas_metrics: dict[str, float],
         classical_metrics: dict[str, float],
     ) -> RAGMetrics:
-        
+
         return RAGMetrics(
 
             bleu=classical_metrics["bleu"],
@@ -386,13 +411,13 @@ class RAGEvaluator(
             )
         )
 
-class RAGStatisticalEvaluator(
-    BaseEvaluator[RAGStatisticalEvaluationResult],
+class RAGPairStatisticalEvaluator(
+    BaseEvaluator[RAGPairStatisticalEvaluationResult],
 ):
 
     def __init__(
         self,
-        config: RAGStatisticalEvaluatorConfig,
+        config: RAGPairStatisticalEvaluatorConfig,
     ):
         super().__init__(config)
 
@@ -404,8 +429,8 @@ class RAGStatisticalEvaluator(
         run_b: RAGEvaluationRun,
     ) -> tuple[
         list[RAGEvaluationResult],
-        list[RAGEvaluationResult]
-        ]:
+        list[RAGEvaluationResult],
+    ]:
 
         results_a = {
             result.sample.qa_id: result
@@ -418,8 +443,7 @@ class RAGStatisticalEvaluator(
         }
 
         common_ids = sorted(
-            results_a.keys()
-            & results_b.keys()
+            results_a.keys() & results_b.keys()
         )
 
         if not common_ids:
@@ -427,95 +451,10 @@ class RAGStatisticalEvaluator(
                 "Experiments have no common QA samples."
             )
 
-        aligned_a = [
-            results_a[qa_id]
-            for qa_id in common_ids
-        ]
-
-        aligned_b = [
-            results_b[qa_id]
-            for qa_id in common_ids
-        ]
-
-        return aligned_a, aligned_b
-
-    def _wilcoxon(
-        self,
-        values_a: list[float],
-        values_b: list[float],
-    ) -> tuple[float, float]:
-
-        if len(values_a) != len(values_b):
-            raise ValueError(
-                "Wilcoxon samples must have equal length."
-            )
-
-        statistic, p_value = wilcoxon(
-            values_a,
-            values_b,
-            alternative="two-sided",
-        )
-
         return (
-            float(statistic),
-            float(p_value),
+            [results_a[qa_id] for qa_id in common_ids],
+            [results_b[qa_id] for qa_id in common_ids],
         )
-
-    def _apply_correction(
-        self,
-        results: list[StatisticalTestResult],
-    ) -> list[StatisticalTestResult]:
-
-        if not results:
-            return results
-
-        if self.config.correction == "none":
-            return results
-
-        method_map = {
-            "bonferroni": "bonferroni",
-            "holm": "holm",
-            "fdr_bh": "fdr_bh",
-        }
-
-        method = method_map[
-            self.config.correction
-        ]
-
-        p_values = np.array(
-            [
-                result.p_value
-                for result in results
-            ]
-        )
-
-        _, adjusted_p_values, _, _ = multipletests(
-            p_values,
-            alpha=self.config.alpha,
-            method=method,
-        )
-
-        corrected: list[StatisticalTestResult] = []
-
-        for result, adjusted_p_value in zip(
-            results,
-            adjusted_p_values,
-        ):
-            corrected.append(
-                result.model_copy(
-                    update={
-                        "adjusted_p_value": float(
-                            adjusted_p_value
-                        ),
-                        "significant": (
-                            adjusted_p_value
-                            < self.config.alpha
-                        ),
-                    },
-                )
-            )
-
-        return corrected
 
     def _extract_metric(
         self,
@@ -541,6 +480,60 @@ class RAGStatisticalEvaluator(
             values.append(value)
 
         return values
+
+    def _wilcoxon(
+        self,
+        values_a: list[float],
+        values_b: list[float],
+    ) -> tuple[float, float]:
+
+        if len(values_a) != len(values_b):
+            raise ValueError(
+                "Wilcoxon samples must have equal length."
+            )
+
+        statistic, p_value = wilcoxon(
+            values_a,
+            values_b,
+            alternative="two-sided",
+        )
+
+        return float(statistic), float(p_value)
+
+    def _apply_correction(
+        self,
+        results: list[StatisticalTestResult],
+    ) -> list[StatisticalTestResult]:
+
+        if not results:
+            return results
+
+        if self.config.correction == "none":
+            return results
+
+        p_values = np.array([
+            result.p_value
+            for result in results
+        ])
+
+        _, adjusted_p_values, _, _ = multipletests(
+            p_values,
+            alpha=self.config.alpha,
+            method=self.config.correction,
+        )
+
+        return [
+            result.model_copy(
+                update={
+                    "adjusted_p_value": float(adjusted_p_value),
+                    "significant": (
+                        adjusted_p_value < self.config.alpha
+                    ),
+                },
+            )
+            for result, adjusted_p_value
+            in zip(results, adjusted_p_values)
+        ]
 
     def _evaluate_pair(
         self,
@@ -584,8 +577,7 @@ class RAGStatisticalEvaluator(
                     p_value=p_value,
                     alpha=self.config.alpha,
                     significant=(
-                        p_value
-                        < self.config.alpha
+                        p_value < self.config.alpha
                     ),
                 )
             )
@@ -595,55 +587,31 @@ class RAGStatisticalEvaluator(
     def evaluate(
         self,
         benchmark: BenchmarkResult,
-    ) -> RAGStatisticalEvaluationResult:
-
-        logger.info(
-            "Running statistical evaluation on %d experiment(s).",
-            len(benchmark.runs),
-        )
+    ) -> RAGPairStatisticalEvaluationResult:
 
         results: list[StatisticalTestResult] = []
 
-        for (
-            index_a,
-            index_b,
-        ) in combinations(
+        for index_a, index_b in combinations(
             range(len(benchmark.runs)),
             2,
         ):
-            run_a = benchmark.runs[index_a]
-            run_b = benchmark.runs[index_b]
-
-            logger.info(
-                "Comparing experiment [%d] vs [%d].",
-                index_a + 1,
-                index_b + 1,
-            )
 
             results.extend(
                 self._evaluate_pair(
-                    run_a=run_a,
-                    run_b=run_b,
+                    run_a=benchmark.runs[index_a],
+                    run_b=benchmark.runs[index_b],
                     experiment_a=index_a + 1,
                     experiment_b=index_b + 1,
                 )
             )
 
-        results = self._apply_correction(
-            results,
+        results = self._apply_correction(results)
+
+        experiment_mapping = _build_experiment_mapping(
+            benchmark.runs,
         )
 
-        experiment_mapping = {
-            index + 1: StatisticalExperiment(
-                embedder=run.setup.embedder.model_name,
-                modality=run.setup.source_retriever.modality.display_name,
-            )
-            for index, run in enumerate(benchmark.runs)
-        }
-
-        logger.info("Finished comparing %d pair of experiments", math.comb(len(benchmark.runs), 2))
-
-        return RAGStatisticalEvaluationResult(
+        return RAGPairStatisticalEvaluationResult(
             experiment_mapping=experiment_mapping,
             results=results,
         )
@@ -651,7 +619,217 @@ class RAGStatisticalEvaluator(
     def evaluate_many(
         self,
         benchmarks: list[BenchmarkResult],
-    ) -> list[RAGStatisticalEvaluationResult]:
+    ) -> list[RAGPairStatisticalEvaluationResult]:
+
+        return [
+            self.evaluate(benchmark)
+            for benchmark in benchmarks
+        ]
+
+class RAGMultiStatisticalEvaluator(
+    BaseEvaluator[RAGMultiStatisticalEvaluationResult],
+):
+
+    def __init__(
+        self,
+        config: RAGMultiStatisticalEvaluatorConfig,
+    ):
+        super().__init__(config)
+
+        self.config = config
+
+    def _align_results(
+        self,
+        runs: list[RAGEvaluationRun],
+    ) -> dict[str, list[RAGEvaluationResult]]:
+
+        results_by_experiment = [
+            {
+                result.sample.qa_id: result
+                for result in run.results
+            }
+            for run in runs
+        ]
+
+        common_ids = set(
+            results_by_experiment[0].keys()
+        )
+
+        for results in results_by_experiment[1:]:
+            common_ids &= results.keys()
+
+        if not common_ids:
+            raise ValueError(
+                "Experiments have no common QA samples."
+            )
+
+        return {
+            qa_id: [
+                results[qa_id]
+                for results in results_by_experiment
+            ]
+            for qa_id in sorted(common_ids)
+        }
+
+    def _extract_metric_matrix(
+        self,
+        runs: list[RAGEvaluationRun],
+        metric: str,
+    ) -> list[list[float]]:
+
+        aligned = self._align_results(runs)
+
+        matrix: list[list[float]] = []
+
+        for results in aligned.values():
+
+            row = []
+
+            for result in results:
+
+                value = getattr(
+                    result.metrics,
+                    metric,
+                    None,
+                )
+
+                if value is None:
+                    raise ValueError(
+                        f"Metric '{metric}' does not exist "
+                        f"in RAGMetrics."
+                    )
+
+                row.append(float(value))
+
+            matrix.append(row)
+
+        return matrix
+
+    def _friedman(
+        self,
+        matrix: list[list[float]],
+    ) -> tuple[float, float]:
+
+        if not matrix:
+            raise ValueError(
+                "Cannot run Friedman test on empty data."
+            )
+
+        experiment_count = len(matrix[0])
+
+        if experiment_count < 3:
+            raise ValueError(
+                "Friedman test requires at least "
+                "three experiments."
+            )
+
+        columns = [
+            [
+                row[experiment_index]
+                for row in matrix
+            ]
+            for experiment_index
+            in range(experiment_count)
+        ]
+
+        statistic, p_value = friedmanchisquare(
+            *columns,
+        )
+
+        return (
+            float(statistic),
+            float(p_value),
+        )
+
+    def evaluate(
+        self,
+        benchmark: BenchmarkResult,
+    ) -> RAGMultiStatisticalEvaluationResult:
+
+        if len(benchmark.runs) < 3:
+            raise ValueError(
+                "Friedman test requires at least "
+                "three experiments."
+            )
+
+        results: list[StatisticalTestResult] = []
+
+        for metric in self.config.metrics:
+
+            matrix = self._extract_metric_matrix(
+                runs=benchmark.runs,
+                metric=metric,
+            )
+
+            statistic, p_value = self._friedman(
+                matrix,
+            )
+
+            results.append(
+                StatisticalTestResult(
+                    experiment_a=1,
+                    experiment_b=len(benchmark.runs),
+                    metric=metric,
+                    test="friedman",
+                    statistic=statistic,
+                    p_value=p_value,
+                    alpha=self.config.alpha,
+                    significant=(
+                        p_value < self.config.alpha
+                    ),
+                )
+            )
+
+        results = self._apply_correction(results)
+
+        experiment_mapping = _build_experiment_mapping(
+            benchmark.runs,
+        )
+
+        return RAGMultiStatisticalEvaluationResult(
+            experiment_mapping=experiment_mapping,
+            results=results,
+        )
+
+    def _apply_correction(
+        self,
+        results: list[StatisticalTestResult],
+    ) -> list[StatisticalTestResult]:
+
+        if not results:
+            return results
+
+        if self.config.correction == "none":
+            return results
+
+        p_values = np.array([
+            result.p_value
+            for result in results
+        ])
+
+        _, adjusted_p_values, _, _ = multipletests(
+            p_values,
+            alpha=self.config.alpha,
+            method=self.config.correction,
+        )
+
+        return [
+            result.model_copy(
+                update={
+                    "adjusted_p_value": float(adjusted_p_value),
+                    "significant": (
+                        adjusted_p_value < self.config.alpha
+                    ),
+                },
+            )
+            for result, adjusted_p_value
+            in zip(results, adjusted_p_values)
+        ]
+
+    def evaluate_many(
+        self,
+        benchmarks: list[BenchmarkResult],
+    ) -> list[RAGMultiStatisticalEvaluationResult]:
 
         return [
             self.evaluate(benchmark)
@@ -698,7 +876,7 @@ class RAGExperimentRunner:
         generation_run: RAGGenerationRun,
         checkpoint_path: str | Path | None = None,
     ) -> RAGEvaluationRun:
-        
+
         logger.info(
             "Evaluating RAG experiment.",
         )
@@ -723,7 +901,7 @@ class RAGExperimentRunner:
                     "%d QA sample(s) already evaluated.",
                     len(evaluated_results),
                 )
-        
+
         evaluation_generator = OllamaTextGenerator(
             setup.evaluation_generator,
         )
@@ -786,7 +964,7 @@ class RAGExperimentRunner:
 
         finally:
             clear_gpu()
-        
+
     def evaluate_experiment(
         self,
         generation_run: RAGGenerationRun,
@@ -799,7 +977,7 @@ class RAGExperimentRunner:
                 checkpoint_path=checkpoint_path,
             )
         )
-    
+
     def evaluate_experiment_from_json(
         self,
         path: str | Path,
@@ -866,7 +1044,7 @@ class RAGExperimentRunner:
                 )
 
         return generation_runs
-    
+
     async def evaluate_multiple_experiments_async(
         self,
         generation_runs: list[RAGGenerationRun],
@@ -986,7 +1164,7 @@ class RAGExperimentRunner:
                 save_dir=save_dir,
             )
         )
-    
+
     def evaluate_multiple_experiments_from_dir(
         self,
         directory: str | Path,

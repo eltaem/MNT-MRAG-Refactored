@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Self
 
 from statistics import mean
-from pydantic import BaseModel, ConfigDict, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 from src.configs import (
     DoublePassMergingChunkerConfig,
     EmbedderConfig,
@@ -1012,8 +1012,8 @@ class BenchmarkResult(BaseArtifact):
 class StatisticalTestResult(
     BaseArtifact,
 ):
-    experiment_a: int
-    experiment_b: int
+    experiment_a: int | None = None
+    experiment_b: int | None = None
     metric: str
 
     test: str
@@ -1051,19 +1051,17 @@ class StatisticalExperiment(BaseModel):
 class RAGStatisticalEvaluationResult(
     BaseArtifact,
 ):
-    experiment_mapping: dict[int, StatisticalExperiment]
+    experiment_mapping: dict[int, StatisticalExperiment] = Field(
+        default_factory=dict,
+    )
     results: list[StatisticalTestResult]
 
-    def to_markdown(self) -> str:
+    # =====================================================
+    # Shared rendering helpers
+    # =====================================================
+
+    def _render_experiment_mapping(self) -> list[str]:
         lines: list[str] = []
-
-        lines.append(
-            "# RAG Statistical Evaluation Report\n"
-        )
-
-        lines.append(
-            "## Statistical Tests\n"
-        )
 
         lines.append("### Experiment Mapping\n")
         lines.append("| Experiment | Embedder | Modality |")
@@ -1075,6 +1073,41 @@ class RAGStatisticalEvaluationResult(
                 f"{experiment.modality} |"
             )
 
+        return lines
+
+    def _render_test_row(
+        self,
+        result: StatisticalTestResult,
+    ) -> str:
+
+        adjusted_p_value = (
+            f"{result.adjusted_p_value:.4f}"
+            if result.adjusted_p_value is not None
+            else "-"
+        )
+
+        return (
+            f"| {result.metric} | {result.test} | "
+            f"{result.statistic:.4f} | "
+            f"{result.p_value:.4f} | "
+            f"{adjusted_p_value} | "
+            f"{'**Yes**' if result.significant else 'No'} |"
+        )
+
+    def to_markdown(self) -> str:
+        raise NotImplementedError
+
+
+class RAGPairStatisticalEvaluationResult(
+    RAGStatisticalEvaluationResult,
+):
+    def to_markdown(self) -> str:
+        lines: list[str] = []
+
+        lines.append("# RAG Pairwise Statistical Evaluation Report\n")
+        lines.append("## Statistical Tests\n")
+        lines.extend(self._render_experiment_mapping())
+
         lines.append("\n## Pairwise Tests\n")
 
         grouped_results: dict[
@@ -1083,24 +1116,14 @@ class RAGStatisticalEvaluationResult(
         ] = {}
 
         for result in self.results:
-            pair = (
-                result.experiment_a,
-                result.experiment_b,
-            )
-            grouped_results.setdefault(
-                pair,
-                [],
-            ).append(result)
+            pair = (result.experiment_a, result.experiment_b)
+            grouped_results.setdefault(pair, []).append(result)
 
         for (experiment_a, experiment_b), results in sorted(
             grouped_results.items()
         ):
-            experiment_a_details = self.experiment_mapping.get(
-                experiment_a
-            )
-            experiment_b_details = self.experiment_mapping.get(
-                experiment_b
-            )
+            experiment_a_details = self.experiment_mapping.get(experiment_a)
+            experiment_b_details = self.experiment_mapping.get(experiment_b)
 
             lines.append(
                 f"### Experiment {experiment_a} vs "
@@ -1126,24 +1149,43 @@ class RAGStatisticalEvaluationResult(
                 "| Metric | Test | Statistic | p-value | "
                 "Adjusted p-value | Significant |"
             )
-            lines.append(
-                "|:---|:---:|---:|---:|---:|:---:|"
-            )
+            lines.append("|:---|:---:|---:|---:|---:|:---:|")
 
             for result in results:
-                adjusted_p_value = (
-                    f"{result.adjusted_p_value:.4f}"
-                    if result.adjusted_p_value is not None
-                    else "-"
-                )
-                lines.append(
-                    f"| {result.metric} | {result.test} | "
-                    f"{result.statistic:.4f} | "
-                    f"{result.p_value:.4f} | "
-                    f"{adjusted_p_value} | "
-                    f"{'**Yes**' if result.significant else 'No'} |"
-                )
+                lines.append(self._render_test_row(result))
 
             lines.append("")
+
+        return "\n".join(lines)
+
+
+class RAGMultiStatisticalEvaluationResult(
+    RAGStatisticalEvaluationResult,
+):
+    def to_markdown(self) -> str:
+        lines: list[str] = []
+
+        lines.append("# RAG Multi-Experiment Statistical Evaluation Report\n")
+        lines.append("## Statistical Tests\n")
+        lines.extend(self._render_experiment_mapping())
+
+        lines.append("\n## Omnibus Tests (Friedman)\n")
+
+        if self.experiment_mapping:
+            lines.append(
+                f"Compared across {len(self.experiment_mapping)} "
+                f"experiment(s).\n"
+            )
+
+        lines.append(
+            "| Metric | Test | Statistic | p-value | "
+            "Adjusted p-value | Significant |"
+        )
+        lines.append("|:---:|:---:|---:|---:|---:|:---:|")
+
+        for result in self.results:
+            lines.append(self._render_test_row(result))
+
+        lines.append("")
 
         return "\n".join(lines)

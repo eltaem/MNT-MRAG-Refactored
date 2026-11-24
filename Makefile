@@ -1,6 +1,6 @@
 SCRIPTS := scripts
 
-.PHONY: kill load cload ollama users qdrant iqa ciqa is cis eval ceval parse dpd gen cgen
+.PHONY: kill load cload ollama users qdrant iqa ciqa is cis eval ceval pqa ps cps cs ccs dpd gen cgen
 
 kill:
 	bash $(SCRIPTS)/kill.sh
@@ -15,8 +15,20 @@ users:
 	nvidia-smi --query-compute-apps=pid --format=csv,noheader | \
 	xargs -I{} ps -o user= -p {} | sort | uniq
 
-parse:
-	python -m src.qa_parser
+pqa:
+	python -m qa_parser
+
+ps:
+	bash $(SCRIPTS)/processor.sh
+
+cps:
+	tmux attach -t processor
+
+cs:
+	bash $(SCRIPTS)/src-chunker.sh
+
+ccs:
+	tmux attach -t chunk
 
 iqa:
 	bash $(SCRIPTS)/qa-indexer.sh

@@ -26,8 +26,8 @@ from src.utility import Modality
 # =====================================================
 
 EMBEDDING_NAMES = [
-        "nvidia/llama-embed-nemotron-8b",
-        "Octen/Octen-Embedding-8B",
+        # "nvidia/llama-embed-nemotron-8b",
+        # "Octen/Octen-Embedding-8B",
         "codefuse-ai/F2LLM-v2-8B",
     ]
 
@@ -38,7 +38,7 @@ MODALITIES = [
     Modality.TEXT_TABLE_IMAGE,
 ]
 
-NUM_QA_SAMPLES = 50
+NUM_QA_SAMPLES = None
 
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 generated_dir = Path("outputs") / f"run-{timestamp}" / "generated"

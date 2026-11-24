@@ -10,7 +10,6 @@ import uuid
 from typing import Any, Literal, Protocol, Sequence, TypeAlias, TypeVar
 import fitz
 from typing import TYPE_CHECKING
-import logging
 
 from pydantic import BaseModel
 import torch
@@ -172,33 +171,6 @@ def serialize_table(table: Any) -> str:
         )
 
     return "\n".join(lines)
-
-logger = logging.getLogger("MNT_MRAG")
-
-class LogLevel(IntEnum):
-    SILENT = logging.CRITICAL + 1
-    DEBUG = logging.DEBUG
-    INFO = logging.INFO
-    WARNING = logging.WARNING
-    ERROR = logging.ERROR
-    CRITICAL = logging.CRITICAL
-
-def configure_logging(level: LogLevel):
-    logging.basicConfig(
-        level=int(level),
-        format=(
-            "%(asctime)s | "
-            "%(levelname)s | "
-            "%(message)s"
-        ),
-    )
-    logger.setLevel(int(level))
-
-# ==========================================================
-# LOGGING SETTINGS
-# ==========================================================
-
-configure_logging(LogLevel.INFO)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -487,3 +459,138 @@ def escape_md(text: str) -> str:
     """Escape markdown-sensitive characters in raw text."""
     # Escape backticks, pipes, and newlines for code blocks
     return text.replace("`", "\\`").replace("|", "\\|")
+
+import requests
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+notifiaction_webhook = os.getenv("WEBHOOK_URL")
+
+def send_notification(message: str):
+    payload = {
+        "content": message,
+    }
+
+    response = requests.post(
+        notifiaction_webhook,
+        json=payload,
+        timeout=10,
+    )
+
+    if response.status_code != 204:
+        # Do not use the main logger here!
+        # Otherwise, this can trigger another notification.
+        print(
+            f"Failed to send notification: "
+            f"{response.status_code} - {response.text}"
+        )
+
+import logging
+import queue
+from logging.handlers import QueueHandler, QueueListener
+
+class NotificationHandler(logging.Handler):
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            message = self.format(record)
+            send_notification(message)
+
+        except Exception:
+            self.handleError(record)
+
+logger = logging.getLogger("MNT_MRAG")
+
+class LogLevel(IntEnum):
+    SILENT = logging.CRITICAL + 1
+    DEBUG = logging.DEBUG
+    INFO = logging.INFO
+    WARNING = logging.WARNING
+    ERROR = logging.ERROR
+    CRITICAL = logging.CRITICAL
+
+# Background notification worker
+_notification_listener = None
+_notification_queue_handler = None
+
+
+def configure_logging(level: LogLevel):
+
+    global _notification_listener
+    global _notification_queue_handler
+
+    # Configure console logging
+    logging.basicConfig(
+        level=int(level),
+        format=(
+            "%(asctime)s | "
+            "%(levelname)s | "
+            "%(message)s"
+        ),
+    )
+
+    logger.setLevel(int(level))
+
+    # Remove previous notification handler if reconfigured
+    if _notification_queue_handler is not None:
+        logger.removeHandler(_notification_queue_handler)
+
+    if _notification_listener is not None:
+        _notification_listener.stop()
+        _notification_listener = None
+
+    # No notifications when SILENT is configured
+    if level == LogLevel.SILENT:
+        _notification_queue_handler = None
+        return
+
+    # Create notification queue
+    notification_queue = queue.Queue()
+
+    # Create the actual notification handler
+    notification_handler = NotificationHandler()
+    notification_handler.setLevel(int(level))
+
+    notification_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s | "
+            "%(levelname)s | "
+            "%(message)s"
+        )
+    )
+
+    # Start background worker
+    _notification_listener = QueueListener(
+        notification_queue,
+        notification_handler,
+        respect_handler_level=True,
+    )
+
+    _notification_listener.start()
+
+    # Attach queue handler to logger
+    _notification_queue_handler = QueueHandler(
+        notification_queue
+    )
+
+    _notification_queue_handler.setLevel(int(level))
+
+    logger.addHandler(_notification_queue_handler)
+
+def shutdown_logging():
+    global _notification_listener
+
+    if _notification_listener is not None:
+        _notification_listener.stop()
+        _notification_listener = None
+
+import atexit
+
+atexit.register(shutdown_logging)
+
+# ==========================================================
+# LOGGING SETTINGS
+# ==========================================================
+
+configure_logging(LogLevel.INFO)

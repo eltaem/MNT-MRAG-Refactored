@@ -24,10 +24,10 @@ def evaluate_embedder_combination():
         config=RAGEvaluatorConfig(),
     )
 
-    evaluated_dir = Path("outputs") / f"run-{timestamp}" / "evaluated"
-    # evaluated_dir = "outputs/run-20260918_142551/evaluated"
+    # evaluated_dir = Path("outputs") / f"run-{timestamp}" / "evaluated"
+    evaluated_dir = "outputs/run-20261123_205131/evaluated"
 
-    rag_experiment_runner.evaluate_multiple_experiments_from_dir(directory="outputs/run-20260922_094130/generated", save_dir=evaluated_dir)
+    rag_experiment_runner.evaluate_multiple_experiments_from_dir(directory="outputs/run-20261123_181909/generated", save_dir=evaluated_dir)
 
 def evaluate_statistics():
     benchmark_path = "outputs/run-20260918_142551/evaluated/experiments_benchmark_details.json"
@@ -49,5 +49,5 @@ def evaluate_statistics():
     pair_statistical_result.save_markdown(statistically_evaluated_dir / "pair_statistical_summary_readable.md")
 
 if __name__ == "__main__":
-    # evaluate_embedder_combination()
-    evaluate_statistics()
+    evaluate_embedder_combination()
+    # evaluate_statistics()

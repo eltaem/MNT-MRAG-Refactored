@@ -77,6 +77,70 @@ def _build_experiment_mapping(
         )
     }
 
+def _label_system_prompts(
+    runs: list[RAGEvaluationRun],
+) -> dict[str, str]:
+    """{prompt text -> P1, P2, ...} by order of first appearance."""
+
+    labels: dict[str, str] = {}
+
+    for run in runs:
+        labels.setdefault(
+            run.setup.answer_generator.system_prompt,
+            f"P{len(labels) + 1}",
+        )
+
+    return labels
+
+
+def _build_prompt_experiment_mapping(
+    runs: list[RAGEvaluationRun],
+) -> dict[int, StatisticalExperiment]:
+    """
+    {index -> (system prompt label, embedder, modality)}. Falls back to
+    the (embedder, modality) mapping if all runs share one prompt.
+    """
+
+    labels = _label_system_prompts(runs)
+
+    if len(labels) == 1:
+        return _build_experiment_mapping(runs)
+
+    mapping = {
+        index: StatisticalExperiment(
+            embedder=run.setup.embedder.model_name,
+            modality=run.setup.source_retriever.modality.display_name,
+            system_prompt=labels[run.setup.answer_generator.system_prompt],
+        )
+        for index, run in enumerate(runs, start=1)
+    }
+
+    combinations_seen = [
+        (e.system_prompt, e.embedder, e.modality)
+        for e in mapping.values()
+    ]
+
+    if len(set(combinations_seen)) != len(combinations_seen):
+        raise ValueError(
+            "Duplicate (system prompt, embedder, modality) "
+            "combination in benchmark runs."
+        )
+
+    return mapping
+
+
+def _build_system_prompt_mapping(
+    runs: list[RAGEvaluationRun],
+) -> dict[str, str]:
+    """{P1 -> full prompt text, ...}. Empty if all runs share one prompt."""
+
+    labels = _label_system_prompts(runs)
+
+    if len(labels) == 1:
+        return {}
+
+    return {label: text for text, label in labels.items()}
+
 class BaseEvaluator(
     ABC,
     Generic[ResultT],
@@ -607,12 +671,17 @@ class RAGPairStatisticalEvaluator(
 
         results = self._apply_correction(results)
 
-        experiment_mapping = _build_experiment_mapping(
+        experiment_mapping = _build_prompt_experiment_mapping(
+            benchmark.runs,
+        )
+
+        system_prompt_mapping=_build_system_prompt_mapping(
             benchmark.runs,
         )
 
         return RAGPairStatisticalEvaluationResult(
             experiment_mapping=experiment_mapping,
+            system_prompt_mapping=system_prompt_mapping,
             results=results,
         )
 
@@ -782,12 +851,17 @@ class RAGMultiStatisticalEvaluator(
 
         results = self._apply_correction(results)
 
-        experiment_mapping = _build_experiment_mapping(
+        experiment_mapping = _build_prompt_experiment_mapping(
             benchmark.runs,
         )
+        
+        system_prompt_mapping= _build_system_prompt_mapping(
+                benchmark.runs,
+            )
 
         return RAGMultiStatisticalEvaluationResult(
             experiment_mapping=experiment_mapping,
+            system_prompt_mapping=system_prompt_mapping,
             results=results,
         )
 

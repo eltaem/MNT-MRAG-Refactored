@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import math
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self, Sequence
 
 from statistics import mean
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
@@ -578,6 +578,63 @@ class BenchmarkResult(BaseArtifact):
 
     runs: list[RAGEvaluationRun]
 
+    @staticmethod
+    def _run_key(run: RAGEvaluationRun) -> tuple[str, str, str]:
+        setup = run.setup
+
+        return (
+            setup.answer_generator.system_prompt,
+            setup.embedder.model_name,
+            setup.source_retriever.modality.display_name,
+        )
+
+    @classmethod
+    def merge(
+        cls,
+        benchmarks: Sequence[BenchmarkResult],
+        on_duplicate: Literal["error", "keep_first", "keep_last"] = "error",
+    ) -> BenchmarkResult:
+        """
+        Combine several benchmarks into one. Run order follows the
+        order of `benchmarks`, then the order of runs inside each.
+        Two runs are duplicates if they share the same
+        (system prompt, embedder, modality).
+        """
+
+        merged: dict[tuple[str, str, str], RAGEvaluationRun] = {}
+
+        for benchmark in benchmarks:
+            for run in benchmark.runs:
+                key = cls._run_key(run)
+
+                if key in merged:
+                    if on_duplicate == "error":
+                        prompt = " ".join(key[0].split())[:40]
+                        raise ValueError(
+                            f"Duplicate run: embedder='{key[1]}', "
+                            f"modality='{key[2]}', "
+                            f"system prompt='{prompt}...'"
+                        )
+
+                    if on_duplicate == "keep_first":
+                        continue
+
+                merged[key] = run
+
+        return cls(runs=list(merged.values()))
+
+    @classmethod
+    def merge_from_json(
+        cls,
+        paths: Sequence[str | Path],
+        on_duplicate: Literal["error", "keep_first", "keep_last"] = "error",
+    ) -> BenchmarkResult:
+
+        return cls.merge(
+            [cls.from_json(path) for path in paths],
+            on_duplicate=on_duplicate,
+        )
+
     def to_markdown(self) -> str:
 
         lines: list[str] = []
@@ -612,6 +669,20 @@ class BenchmarkResult(BaseArtifact):
             for run in self.runs
         }
 
+        system_prompts = {
+            run.setup.answer_generator.system_prompt
+            for run in self.runs
+        }
+
+        # Label prompts P1, P2, ... by first appearance.
+        prompt_labels: dict[str, str] = {}
+
+        for run in self.runs:
+            prompt_labels.setdefault(
+                run.setup.answer_generator.system_prompt,
+                f"P{len(prompt_labels) + 1}",
+            )
+
         constant_embedder = (
             next(iter(embedders))
             if len(embedders) == 1
@@ -636,6 +707,12 @@ class BenchmarkResult(BaseArtifact):
             else None
         )
 
+        constant_system_prompt = (
+            next(iter(system_prompts))
+            if len(system_prompts) == 1
+            else None
+        )
+
         # =====================================================
         # Benchmark configuration
         # =====================================================
@@ -655,6 +732,16 @@ class BenchmarkResult(BaseArtifact):
         if constant_answer_generator is not None:
             fixed_configuration.append(
                 ("Answer Generator", constant_answer_generator)
+            )
+
+        if constant_system_prompt is not None:
+            preview = " ".join(constant_system_prompt.split())
+
+            if len(preview) > 80:
+                preview = preview[:80].rstrip() + "..."
+
+            fixed_configuration.append(
+                ("System Prompt", preview)
             )
 
         if constant_evaluation_generator is not None:
@@ -688,6 +775,9 @@ class BenchmarkResult(BaseArtifact):
 
         if constant_answer_generator is None:
             columns.append("Answer Generator")
+
+        if constant_system_prompt is None:
+            columns.append("System Prompt")
 
         if constant_evaluation_generator is None:
             columns.append("Evaluation Generator")
@@ -843,6 +933,7 @@ class BenchmarkResult(BaseArtifact):
         previous_embedder: str | None = None
         previous_chunker: str | None = None
         previous_answer_generator: str | None = None
+        previous_system_prompt: str | None = None
         previous_evaluation_generator: str | None = None
 
         for run in self.runs:
@@ -854,9 +945,12 @@ class BenchmarkResult(BaseArtifact):
             embedder = setup.embedder.model_name
             chunker = setup.chunker.name
             answer_generator = setup.answer_generator.model_name
+            system_prompt = setup.answer_generator.system_prompt
             evaluation_generator = (
                 setup.evaluation_generator.model_name
             )
+
+            prompt_changed = system_prompt != previous_system_prompt
 
             row: list[str] = []
 
@@ -867,7 +961,7 @@ class BenchmarkResult(BaseArtifact):
             if constant_embedder is None:
                 display_embedder = (
                     embedder
-                    if embedder != previous_embedder
+                    if embedder != previous_embedder or prompt_changed
                     else ""
                 )
 
@@ -894,6 +988,15 @@ class BenchmarkResult(BaseArtifact):
                 )
 
                 row.append(display_answer_generator)
+
+            if constant_system_prompt is None:
+                display_system_prompt = (
+                    prompt_labels[system_prompt]
+                    if prompt_changed
+                    else ""
+                )
+
+                row.append(display_system_prompt)
 
             if constant_evaluation_generator is None:
                 display_evaluation_generator = (
@@ -961,6 +1064,7 @@ class BenchmarkResult(BaseArtifact):
             previous_embedder = embedder
             previous_chunker = chunker
             previous_answer_generator = answer_generator
+            previous_system_prompt = system_prompt
             previous_evaluation_generator = (
                 evaluation_generator
             )
@@ -1007,6 +1111,19 @@ class BenchmarkResult(BaseArtifact):
             f"{benchmark_runtime.total_time:.4f}s |"
         )
 
+        # =====================================================
+        # System Prompt legend
+        # =====================================================
+
+        if constant_system_prompt is None:
+            lines.append("\n## System Prompts\n")
+
+            for text, label in prompt_labels.items():
+                lines.append(f"**{label}**\n")
+                lines.append("```text")
+                lines.append(text.strip())
+                lines.append("```\n")
+
         return "\n".join(lines)
 
 class StatisticalTestResult(
@@ -1047,6 +1164,7 @@ class StatisticalTestResult(
 class StatisticalExperiment(BaseModel):
     embedder: str
     modality: str
+    system_prompt: str | None = None
 
 class RAGStatisticalEvaluationResult(
     BaseArtifact,
@@ -1054,6 +1172,11 @@ class RAGStatisticalEvaluationResult(
     experiment_mapping: dict[int, StatisticalExperiment] = Field(
         default_factory=dict,
     )
+
+    system_prompt_mapping: dict[str, str] = Field(
+        default_factory=dict,
+    )
+
     results: list[StatisticalTestResult]
 
     # =====================================================
@@ -1064,16 +1187,57 @@ class RAGStatisticalEvaluationResult(
         lines: list[str] = []
 
         lines.append("### Experiment Mapping\n")
-        lines.append("| Experiment | Embedder | Modality |")
-        lines.append("|:---:|:---|:---|")
 
-        for index, experiment in self.experiment_mapping.items():
-            lines.append(
-                f"| {index} | {experiment.embedder} | "
-                f"{experiment.modality} |"
-            )
+        has_prompt = any(
+            e.system_prompt is not None
+            for e in self.experiment_mapping.values()
+        )
+
+        if has_prompt:
+            lines.append("| Experiment | System Prompt | Embedder | Modality |")
+            lines.append("|:---:|:---:|:---|:---|")
+            for index, e in self.experiment_mapping.items():
+                lines.append(
+                    f"| {index} | {e.system_prompt} | "
+                    f"{e.embedder} | {e.modality} |"
+                )
+        else:
+            lines.append("| Experiment | Embedder | Modality |")
+            lines.append("|:---:|:---|:---|")
+            for index, e in self.experiment_mapping.items():
+                lines.append(
+                    f"| {index} | {e.embedder} | {e.modality} |"
+                )
+
+        if self.system_prompt_mapping:
+            lines.append("")
+            lines.append("### System Prompt Mapping\n")
+            lines.append("| Label | System Prompt |")
+            lines.append("|:---:|:---|")
+
+            for label, text in self.system_prompt_mapping.items():
+                cell = (
+                    text.strip()
+                    .replace("|", "\\|")
+                    .replace("\r\n", "\n")
+                    .replace("\n", "<br>")
+                )
+                lines.append(f"| {label} | {cell} |")
 
         return lines
+
+    @staticmethod
+    def _describe_experiment(experiment: StatisticalExperiment) -> str:
+        prompt = (
+            f"[{experiment.system_prompt}] "
+            if experiment.system_prompt is not None
+            else ""
+        )
+
+        return (
+            f"{prompt}{experiment.embedder} "
+            f"({experiment.modality})"
+        )
 
     def _render_test_row(
         self,
@@ -1133,15 +1297,13 @@ class RAGPairStatisticalEvaluationResult(
             if experiment_a_details is not None:
                 lines.append(
                     f"- **Experiment {experiment_a}:** "
-                    f"{experiment_a_details.embedder} "
-                    f"({experiment_a_details.modality})"
+                    f"{self._describe_experiment(experiment_a_details)}"
                 )
 
             if experiment_b_details is not None:
                 lines.append(
                     f"- **Experiment {experiment_b}:** "
-                    f"{experiment_b_details.embedder} "
-                    f"({experiment_b_details.modality})"
+                    f"{self._describe_experiment(experiment_b_details)}"
                 )
 
             lines.append("")
